@@ -320,9 +320,10 @@
 
     <div class="cfg-section">
       <h3>Respaldo en Google Sheets + fotos en Drive</h3>
-      <p class="hint">Pega aquí la URL de la aplicación web de Apps Script (ver archivo Code.gs). Cada lectura, foto o importación se envía sola. Sin conexión, los datos quedan guardados en el celular y se reintentan solos o con el botón de abajo.</p>
-      <label style="font-size:.75rem;color:var(--muted);">URL de la aplicación web (Apps Script)</label>
-      <input type="text" id="sheetsUrl" placeholder="https://script.google.com/macros/s/XXXX/exec" style="margin:5px 0 10px;">
+      <p class="hint">Cada lectura, foto o importación se envía sola a la hoja/carpeta configurada. Sin conexión, los datos quedan guardados en el celular y se reintentan solos o con el botón de abajo.</p>
+      <div id="sheetsUrlStatus" style="font-size:.82rem;margin-bottom:8px;"></div>
+      <input type="password" id="sheetsUrl" style="display:none;margin-bottom:10px;" placeholder="https://script.google.com/macros/s/XXXX/exec">
+      <button class="add-btn" id="btnEditarUrl" style="margin-top:0;">✏️ Cambiar URL de respaldo</button>
       <button class="add-btn" id="btnSyncAll">🔄 Sincronizar todo ahora</button>
       <div class="import-result" id="syncStatus" style="display:block;margin-top:10px;">Sin sincronizar todavía.</div>
     </div>
@@ -355,6 +356,7 @@ const DEFAULT_CONFIG = {
   ]
 };
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
+const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycby2Rq0POFuFGDntZcY9MwJSJvO1Rkr5baEKrlY5FdrBwxrnua_4t6r85M1xbazzTdzi/exec';
 const ESTADOS = {
   leida:        { label:'Leída',                clase:'' },
   sin_acceso:   { label:'Sin acceso',            clase:'sinacceso' },
@@ -377,13 +379,17 @@ async function loadState(){
   try{ const r4 = await window.storage.get('jdvm_umbrales'); UMBRALES = r4 ? JSON.parse(r4.value) : {min:1,max:60,desvio:50}; } catch(e){ UMBRALES = {min:1,max:60,desvio:50}; }
   try{ const r5 = await window.storage.get('jdvm_usuarios'); USERS = r5 ? JSON.parse(r5.value) : DEFAULT_USERS; } catch(e){ USERS = DEFAULT_USERS; }
   try{ const r6 = await window.storage.get('jdvm_sheets_url'); SHEETS_URL = r6 ? r6.value : ''; } catch(e){ SHEETS_URL = ''; }
+  if(!SHEETS_URL){
+    SHEETS_URL = DEFAULT_SHEETS_URL;
+    try{ await window.storage.set('jdvm_sheets_url', SHEETS_URL); }catch(e){}
+  }
   try{ const r7 = await window.storage.get('jdvm_last_sync'); if(r7) updateSyncStatus(r7.value); } catch(e){}
   try{ const r8 = await window.storage.get('jdvm_periodos_cerrados'); PERIODOS_CERRADOS = r8 ? JSON.parse(r8.value) : []; } catch(e){ PERIODOS_CERRADOS = []; }
   try{ const r9 = await window.storage.get('jdvm_cola_pendiente'); COLA_PENDIENTE = r9 ? JSON.parse(r9.value) : []; } catch(e){ COLA_PENDIENTE = []; }
   document.getElementById('umbralMin').value = UMBRALES.min;
   document.getElementById('umbralMax').value = UMBRALES.max;
   document.getElementById('umbralDesvio').value = UMBRALES.desvio!=null ? UMBRALES.desvio : 50;
-  document.getElementById('sheetsUrl').value = SHEETS_URL;
+  actualizarEstadoUrlSheets();
 }
 async function saveConfig(){ try{ await window.storage.set('jdvm_config', JSON.stringify(CONFIG)); }catch(e){} }
 async function saveLecturas(){ try{ await window.storage.set('jdvm_lecturas', JSON.stringify(LECTURAS)); }catch(e){} }
@@ -1230,9 +1236,25 @@ document.getElementById('emailDestino').addEventListener('change', saveEmailDest
 /* =========================================================
    SINCRONIZACIÓN CON GOOGLE SHEETS
    ========================================================= */
+function actualizarEstadoUrlSheets(){
+  const box = document.getElementById('sheetsUrlStatus');
+  if(!box) return;
+  box.textContent = SHEETS_URL ? '🔒 Respaldo configurado (URL oculta).' : '⚠ Respaldo no configurado.';
+}
+document.getElementById('btnEditarUrl').addEventListener('click', ()=>{
+  const input = document.getElementById('sheetsUrl');
+  const abrir = input.style.display==='none';
+  input.style.display = abrir ? 'block' : 'none';
+  if(abrir){ input.value = ''; input.placeholder = SHEETS_URL ? 'Dejar en blanco para mantener la actual' : 'https://script.google.com/macros/s/XXXX/exec'; input.focus(); }
+});
 document.getElementById('sheetsUrl').addEventListener('change', async (e)=>{
-  SHEETS_URL = e.target.value.trim();
+  const val = e.target.value.trim();
+  if(!val) return; // en blanco = no se cambia
+  SHEETS_URL = val;
   try{ await window.storage.set('jdvm_sheets_url', SHEETS_URL); }catch(err){}
+  e.target.style.display='none'; e.target.value='';
+  actualizarEstadoUrlSheets();
+  toast('URL de respaldo actualizada ✓');
 });
 
 function filaParaSheets(t, p, u, reg){
