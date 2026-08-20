@@ -170,12 +170,17 @@
   .login-error{color:var(--red);font-size:.8rem;margin-top:10px;display:none;}
   .login-note{font-size:.68rem;color:var(--muted);margin-top:16px;line-height:1.4;border-top:1px solid var(--line);padding-top:10px;}
 
+  #printTable{display:none;}
   @media print{
-    header.app, .action-bar, .selector-row, .search-wrap, .summary-bar, .alert-banner, .closed-banner, .unit-tools .btn-mini.b-foto, nav.tabs, #loginOverlay{display:none !important;}
+    header.app, .action-bar, .selector-row, .search-wrap, .summary-bar, .alert-banner, .closed-banner, .unit-tools .btn-mini.b-foto, nav.tabs, #loginOverlay, #unitList, .anom-toolbar, #anomList{display:none !important;}
     body{background:#fff;padding:0;}
     main{max-width:100%;padding:0;}
-    .unit-card{border:1px solid #999;break-inside:avoid;margin-bottom:8px;}
     .print-header{display:block !important;margin-bottom:14px;}
+    #printTable{display:block !important;}
+    #printTable table{width:100%;border-collapse:collapse;font-size:9.5px;}
+    #printTable th, #printTable td{border:1px solid #999;padding:4px 5px;text-align:left;vertical-align:top;word-break:break-word;}
+    #printTable th{background:#e3efed;font-weight:700;}
+    #printTable tr{break-inside:avoid;}
   }
   .print-header{display:none;}
   .print-header h1{font-size:1.1rem;margin:0 0 2px;}
@@ -190,9 +195,9 @@
     <h2>Lecturas de Medidores</h2>
     <p class="sub">Jardines de Vicuña Mackenna — ingresa con tu usuario</p>
     <label>Usuario</label>
-    <input type="text" id="loginUsuario" autocomplete="username" placeholder="ej: admin">
+    <input type="text" id="loginUsuario" name="jdvm_user_field" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="ej: admin">
     <label>Contraseña</label>
-    <input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••">
+    <input type="password" id="loginPassword" name="jdvm_pass_field" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="••••••">
     <div class="login-error" id="loginError">Usuario o contraseña incorrectos.</div>
     <button id="btnLogin">Ingresar</button>
     <div class="login-note">Usuario inicial: <b>admin</b> / <b>admin123</b>. Cámbialo y crea usuarios de "Tomador de registro" desde Configuración → Usuarios una vez dentro.</div>
@@ -221,6 +226,7 @@
 
 <main>
   <div class="print-header"><h1>Comunidad Jardines de Vicuña Mackenna — Lecturas de medidores</h1><p id="printSub"></p></div>
+  <div id="printTable"></div>
 
   <!-- TAB LECTURAS -->
   <section id="tab-lecturas">
@@ -322,7 +328,7 @@
       <h3>Respaldo en Google Sheets + fotos en Drive</h3>
       <p class="hint">Cada lectura, foto o importación se envía sola a la hoja/carpeta configurada. Sin conexión, los datos quedan guardados en el celular y se reintentan solos o con el botón de abajo.</p>
       <div id="sheetsUrlStatus" style="font-size:.82rem;margin-bottom:8px;"></div>
-      <input type="password" id="sheetsUrl" style="display:none;margin-bottom:10px;" placeholder="https://script.google.com/macros/s/XXXX/exec">
+      <input type="text" id="sheetsUrl" name="jdvm_backup_field_no_autofill" autocomplete="off" data-lpignore="true" data-1p-ignore readonly onfocus="this.removeAttribute('readonly')" style="display:none;margin-bottom:10px;-webkit-text-security:disc;text-security:disc;" placeholder="https://script.google.com/macros/s/XXXX/exec">
       <button class="add-btn" id="btnEditarUrl" style="margin-top:0;">✏️ Cambiar URL de respaldo</button>
       <button class="add-btn" id="btnSyncAll">🔄 Sincronizar todo ahora</button>
       <div class="import-result" id="syncStatus" style="display:block;margin-top:10px;">Sin sincronizar todavía.</div>
@@ -408,7 +414,7 @@ async function saveUmbrales(){
 function periodo(){ return document.getElementById('periodoInput').value.trim() || 'Sin periodo'; }
 function unitKey(torreId, piso, depto){ return `${periodo()}|${torreId}|${piso}|${depto}`; }
 function unitKeyFor(per, torreId, piso, depto){ return `${per}|${torreId}|${piso}|${depto}`; }
-function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+function toast(msg, ms=2200){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),ms); }
 function etiquetaEstado(estado){ return (ESTADOS[estado]||ESTADOS.leida).label; }
 
 /* =========================================================
@@ -454,6 +460,12 @@ function enterApp(){
   }
   populateTorreSelect();
   refreshAnomBadge();
+  if(esAdmin()){
+    setTimeout(()=>{
+      const pendientes = getAnomaliasGlobales().filter(a=>!a.revisada).length;
+      if(pendientes>0) toast(`⚠ Hay ${pendientes} anomalía(s) pendiente(s) en la comunidad — revísalas en la pestaña Anomalías`, 5000);
+    }, 500);
+  }
   refreshConnUI();
 }
 function esAdmin(){ return currentUser && currentUser.rol==='admin'; }
@@ -736,6 +748,7 @@ function renderUnitList(){
       ${anom ? `<div class="anom-tag">⚠ ${anom.motivo}</div>` : ''}
       <textarea class="in-obs" placeholder="Observaciones (opcional)" ${dis}>${obsVal}</textarea>
       <div class="unit-tools">
+        <div class="btn-mini b-guardar" data-key="${key}" ${editable?'':'disabled'}>💾 Guardar</div>
         <div class="btn-mini b-foto ${hasFoto?(fotoUrl?'has-photo':'foto-pend'):''}" data-key="${key}" ${editable?'':'disabled'}>📷 ${fotoUrl?'Foto en Drive ✓':(hasFoto?'Foto por subir…':'Tomar foto')}</div>
       </div>
     </div>`;
@@ -799,6 +812,9 @@ function attachUnitEvents(){
 
     const btnFoto = card.querySelector('.b-foto');
     if(btnFoto) btnFoto.addEventListener('click', ()=>{ currentUnitKeyForFoto = key; document.getElementById('fotoInput').click(); });
+
+    const btnGuardar = card.querySelector('.b-guardar');
+    if(btnGuardar) btnGuardar.addEventListener('click', ()=> guardarUnaTarjeta(card));
   });
 }
 
@@ -846,43 +862,60 @@ async function subirFotoADrive(key, base64){
 }
 
 /* =========================================================
-   GUARDAR + ALERTA AL MOMENTO
+   GUARDAR (individual por tarjeta o consolidado) + ALERTA AL MOMENTO
    ========================================================= */
+function datosDesdeCard(card){
+  const key = card.dataset.key;
+  const estado = card.querySelector('.in-estado').value;
+  const actual = card.querySelector('.in-actual').value;
+  const anterior = card.querySelector('.in-anterior').value;
+  const obs = card.querySelector('.in-obs').value;
+  const prev = LECTURAS[key] || {};
+  const depto = key.split('|')[3];
+  const now = new Date().toISOString();
+  LECTURAS[key] = {
+    estado: estado,
+    actual: (estado==='leida' && actual!=='') ? parseFloat(actual) : null,
+    anterior: (estado==='leida' && anterior!=='') ? parseFloat(anterior) : null,
+    obs: obs,
+    tieneFoto: prev.tieneFoto || false,
+    fotoUrl: prev.fotoUrl || null,
+    horaGuardado: now,
+    torre: currentTorre, piso: currentPiso,
+    autor: prev.autor || currentUser.usuario,
+    autorNombre: prev.autorNombre || currentUser.nombre,
+    revisada: (prev.revisada && prev.actual===parseFloat(actual)) ? prev.revisada : false
+  };
+  const anom = estado==='leida' ? detectarAnomalia(anterior, actual, currentTorre, depto) : null;
+  return { key, depto, guardada: unidadProcesada(LECTURAS[key]), anom };
+}
+
+async function guardarUnaTarjeta(card){
+  if(periodoCerrado(periodo())){ toast('🔒 Este periodo está cerrado, no se puede guardar'); return; }
+  if(card.dataset.editable === 'false'){ toast('🔒 No puedes editar este registro'); return; }
+  const btn = card.querySelector('.b-guardar');
+  if(btn){ btn.textContent = '💾 Guardando…'; btn.style.pointerEvents='none'; }
+  const { key, depto, anom } = datosDesdeCard(card);
+  await saveLecturas();
+  await enviarASheets(buildRowsForKeys([key]), {silencioso:true, clavesOriginales:[key]});
+  if(anom) toast(`⚠ Guardado — Depto ${depto}: ${anom.motivo}`);
+  else toast(`Guardado ✓ Depto ${depto}`);
+  renderUnitList();
+  refreshAnomBadge();
+}
+
 async function collectAndSave(){
   if(periodoCerrado(periodo())){ toast('🔒 Este periodo está cerrado, no se puede guardar'); return; }
   const cards = document.querySelectorAll('.unit-card');
   let guardadas = 0, bloqueadas = 0;
   const anomalias = [];
   const clavesGuardadas = [];
-  const now = new Date().toISOString();
   cards.forEach(card=>{
     if(card.dataset.editable === 'false'){ bloqueadas++; return; }
-    const key = card.dataset.key;
-    const estado = card.querySelector('.in-estado').value;
-    const actual = card.querySelector('.in-actual').value;
-    const anterior = card.querySelector('.in-anterior').value;
-    const obs = card.querySelector('.in-obs').value;
-    const prev = LECTURAS[key] || {};
-    const depto = key.split('|')[3];
-    LECTURAS[key] = {
-      estado: estado,
-      actual: (estado==='leida' && actual!=='') ? parseFloat(actual) : null,
-      anterior: (estado==='leida' && anterior!=='') ? parseFloat(anterior) : null,
-      obs: obs,
-      tieneFoto: prev.tieneFoto || false,
-      fotoUrl: prev.fotoUrl || null,
-      horaGuardado: now,
-      torre: currentTorre, piso: currentPiso,
-      autor: prev.autor || currentUser.usuario,
-      autorNombre: prev.autorNombre || currentUser.nombre,
-      revisada: (prev.revisada && prev.actual===parseFloat(actual)) ? prev.revisada : false
-    };
-    if(unidadProcesada(LECTURAS[key])) guardadas++;
+    const { key, depto, guardada, anom } = datosDesdeCard(card);
+    if(guardada) guardadas++;
     clavesGuardadas.push(key);
-    if(estado==='leida'){
-      const anom = detectarAnomalia(anterior, actual, currentTorre, depto);
-      if(anom) anomalias.push({depto, ...anom});
-    }
+    if(anom) anomalias.push({depto, ...anom});
   });
   await saveLecturas();
   await enviarASheets(buildRowsForKeys(clavesGuardadas), {silencioso:true, clavesOriginales:clavesGuardadas});
@@ -1257,18 +1290,26 @@ document.getElementById('sheetsUrl').addEventListener('change', async (e)=>{
   toast('URL de respaldo actualizada ✓');
 });
 
+function pad2(n){ return String(n).padStart(2,'0'); }
+function formatFechaHora(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  return `${pad2(d.getDate())}-${pad2(d.getMonth()+1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 function filaParaSheets(t, p, u, reg){
   const estado = reg.estado || 'leida';
-  const consumo = (estado==='leida' && reg.actual!=null && reg.anterior!=null) ? (reg.actual-reg.anterior) : '';
+  const variacion = (estado==='leida' && reg.actual!=null && reg.anterior!=null) ? (reg.actual-reg.anterior) : '';
   const anom = estado==='leida' ? detectarAnomalia(reg.anterior, reg.actual, t.id, u.depto) : null;
   return {
     Periodo: t.__periodo, Torre: t.nombre, Piso: p, Depto: u.depto, Medidor: u.medidor,
     Estado: etiquetaEstado(estado),
     'Lectura anterior': reg.anterior ?? '', 'Lectura actual': reg.actual ?? '',
-    'Consumo (m³)': consumo, 'Anomalía': anom ? anom.motivo : '',
+    'Variación (m³)': variacion, 'Anomalía': anom ? anom.motivo : '',
     Observaciones: reg.obs || '', 'Foto': reg.fotoUrl || (reg.tieneFoto ? 'Pendiente de subir' : 'No'),
     'Registrado por': reg.autorNombre || reg.autor || '',
-    'Fecha registro': reg.horaGuardado ? new Date(reg.horaGuardado).toLocaleString('es-CL') : ''
+    'Fecha registro': formatFechaHora(reg.horaGuardado)
   };
 }
 function buildRowsForKeys(keys){
@@ -1291,10 +1332,10 @@ function updateSyncStatus(isoOrMsg, ok){
   const box = document.getElementById('syncStatus');
   if(!box) return;
   if(ok===false){
-    box.textContent = `⚠ No se pudo sincronizar (sin conexión o URL inválida). Datos guardados en el celular — ${new Date().toLocaleString('es-CL')}`;
+    box.textContent = `⚠ No se pudo sincronizar (sin conexión o URL inválida). Datos guardados en el celular — ${formatFechaHora(new Date().toISOString())}`;
     return;
   }
-  const fecha = isoOrMsg ? new Date(isoOrMsg).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
+  const fecha = formatFechaHora(isoOrMsg || new Date().toISOString());
   box.textContent = `✓ Última sincronización con Sheets: ${fecha}`;
 }
 
@@ -1347,11 +1388,30 @@ function buildDataRows(){
   }
   return rows;
 }
+function parseFechaChile(str){
+  // Espera "DD-MM-AAAA HH:MM"
+  if(!str) return null;
+  const m = str.match(/^(\d{2})-(\d{2})-(\d{4}) (\d{2}):(\d{2})$/);
+  if(!m) return null;
+  return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]), parseInt(m[4]), parseInt(m[5]));
+}
+function convertirColumnaFecha(ws, rows, nombreColumna){
+  const headers = Object.keys(rows[0]||{});
+  const colIdx = headers.indexOf(nombreColumna);
+  if(colIdx===-1) return;
+  rows.forEach((row, i)=>{
+    const fecha = parseFechaChile(row[nombreColumna]);
+    if(!fecha) return;
+    const cellRef = XLSX.utils.encode_cell({r:i+1, c:colIdx}); // +1 por la fila de encabezado
+    ws[cellRef] = { t:'d', v:fecha, z:'dd-mm-yyyy hh:mm' };
+  });
+}
 document.getElementById('btnXlsx').addEventListener('click', ()=>{
   const rows = buildDataRows();
   if(rows.length===0){ toast('No hay lecturas guardadas para exportar'); return; }
   const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch:12},{wch:12},{wch:6},{wch:8},{wch:12},{wch:14},{wch:14},{wch:14},{wch:12},{wch:30},{wch:28},{wch:22},{wch:16},{wch:18}];
+  convertirColumnaFecha(ws, rows, 'Fecha registro');
+  ws['!cols'] = [{wch:12},{wch:12},{wch:6},{wch:8},{wch:12},{wch:14},{wch:14},{wch:14},{wch:12},{wch:30},{wch:28},{wch:22},{wch:16},{wch:19}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Lecturas');
   XLSX.writeFile(wb, `Lecturas_JDVM_${periodo().replace(/\s+/g,'_')}.xlsx`);
@@ -1361,7 +1421,21 @@ document.getElementById('btnXlsx').addEventListener('click', ()=>{
 /* =========================================================
    PDF / IMPRIMIR
    ========================================================= */
-document.getElementById('btnPdf').addEventListener('click', ()=>{ window.print(); });
+function construirTablaImpresion(rows){
+  const columnas = ['Periodo','Torre','Piso','Depto','Medidor','Estado','Lectura anterior','Lectura actual','Variación (m³)','Anomalía','Observaciones','Registrado por','Fecha registro'];
+  let html = '<table><thead><tr>' + columnas.map(c=>`<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach(r=>{
+    html += '<tr>' + columnas.map(c=>`<td>${(r[c]!==undefined && r[c]!==null) ? r[c] : ''}</td>`).join('') + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('printTable').innerHTML = html;
+}
+document.getElementById('btnPdf').addEventListener('click', ()=>{
+  const rows = buildDataRows();
+  if(rows.length===0){ toast('No hay lecturas guardadas para imprimir'); return; }
+  construirTablaImpresion(rows);
+  window.print();
+});
 
 /* =========================================================
    ENVIAR POR CORREO
@@ -1371,7 +1445,7 @@ document.getElementById('btnMail').addEventListener('click', ()=>{
   const rows = buildDataRows();
   if(rows.length===0){ toast('No hay lecturas guardadas para enviar'); return; }
   let body = `Lecturas de medidores - Comunidad JDVM\nPeriodo: ${periodo()}\n\n`;
-  rows.forEach(r=>{ body += `${r.Torre} · Piso ${r.Piso} · Depto ${r.Depto} (${r.Medidor}) [${r.Estado}]: anterior ${r['Lectura anterior']} → actual ${r['Lectura actual']} = ${r['Consumo (m³)']} m³${r['Anomalía']?' ⚠ '+r['Anomalía']:''} — reg. ${r['Registrado por']}\n`; });
+  rows.forEach(r=>{ body += `${r.Torre} · Piso ${r.Piso} · Depto ${r.Depto} (${r.Medidor}) [${r.Estado}]: anterior ${r['Lectura anterior']} → actual ${r['Lectura actual']} = ${r['Variación (m³)']} m³${r['Anomalía']?' ⚠ '+r['Anomalía']:''} — reg. ${r['Registrado por']}\n`; });
   body += `\n---\nEste correo se generó desde la app de Lecturas JDVM. Adjunta manualmente el archivo Excel exportado si lo necesitas, ya que el navegador no permite adjuntarlo automáticamente.`;
   const url = `mailto:${encodeURIComponent(dest)}?subject=${encodeURIComponent('Lecturas de medidores JDVM - '+periodo())}&body=${encodeURIComponent(body)}`;
   window.location.href = url;
