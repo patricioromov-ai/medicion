@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Lecturas de Medidores · JDVM</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#12262b; --paper:#f4f7f6; --card:#ffffff;
+    --teal:#0f5c56; --teal-dark:#0a3f3b; --teal-soft:#e3efed;
+    --amber:#d98c2b; --amber-soft:#fbeed9;
+    --red:#b3432f; --red-soft:#fbe4de;
+    --gray:#6b7c79; --gray-soft:#e9ecec;
+    --line:#dbe4e2; --muted:#6b7c79; --radius:10px;
+    font-size:16px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ background:var(--paper); color:var(--ink); font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,sans-serif; -webkit-tap-highlight-color:transparent; padding-bottom:84px; }
+  header.app{ background:var(--teal-dark); color:#fff; padding:12px 16px 12px; position:sticky; top:0; z-index:20; box-shadow:0 2px 8px rgba(0,0,0,.15);}
+  header.app .row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  header.app .brand{display:flex;align-items:baseline;gap:8px;}
+  header.app .brand b{font-size:1.05rem;letter-spacing:.2px;}
+  header.app .brand span{font-size:.72rem;color:#bcd8d3;text-transform:uppercase;letter-spacing:1px;}
+  .periodo-chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px 10px;border-radius:20px;font-size:.8rem;display:flex;align-items:center;gap:6px;}
+  .periodo-chip input{background:transparent;border:none;color:#fff;font-size:.8rem;font-family:inherit;width:100px;}
+  .user-bar{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:.74rem;color:#cfe4e1;flex-wrap:wrap;gap:6px;}
+  .user-bar .who{display:flex;align-items:center;gap:6px;}
+  .user-bar .rolechip{background:rgba(255,255,255,.15);padding:2px 7px;border-radius:10px;font-size:.64rem;font-weight:700;text-transform:uppercase;}
+  .user-bar .right{display:flex;align-items:center;gap:6px;}
+  .conn-chip{padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;}
+  .conn-chip.on{background:rgba(80,200,140,.25);}
+  .conn-chip.off{background:rgba(220,90,60,.3);}
+  .pend-chip{background:rgba(255,180,60,.25);padding:2px 8px;border-radius:10px;font-size:.66rem;font-weight:700;cursor:pointer;border:none;color:#fff;}
+  .user-bar button.logout{background:transparent;border:1px solid rgba(255,255,255,.35);color:#fff;padding:4px 9px;border-radius:14px;font-size:.7rem;cursor:pointer;}
+  nav.tabs{display:flex;gap:4px;margin-top:10px;background:rgba(0,0,0,.18);border-radius:10px;padding:3px;}
+  nav.tabs button{flex:1;border:none;background:transparent;color:#cfe4e1;padding:9px 4px;font-size:.76rem;font-weight:600;border-radius:8px;cursor:pointer;position:relative;}
+  nav.tabs button.active{background:#fff;color:var(--teal-dark);}
+  nav.tabs button[hidden]{display:none;}
+  .tab-badge{position:absolute;top:2px;right:4px;background:var(--red);color:#fff;font-size:.6rem;border-radius:8px;padding:1px 5px;font-weight:700;}
+
+  main{padding:14px 12px 12px;max-width:720px;margin:0 auto;}
+  .selector-row{display:flex;gap:8px;margin-bottom:8px;}
+  select, input[type=text], input[type=number], input[type=password]{ font-family:inherit;font-size:.95rem;padding:10px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);width:100%; }
+  select:focus, input:focus{outline:2px solid var(--teal);outline-offset:1px;}
+  .selector-row select{flex:1;}
+  .selector-row button.nextbtn{flex:0 0 46px;background:var(--teal);color:#fff;border:none;border-radius:8px;font-size:1.1rem;cursor:pointer;}
+
+  .search-wrap{position:relative;margin-bottom:12px;}
+  .search-results{background:#fff;border:1px solid var(--line);border-radius:8px;margin-top:4px;overflow:hidden;display:none;}
+  .search-results.show{display:block;}
+  .search-results .item{padding:9px 12px;font-size:.85rem;border-bottom:1px solid var(--line);cursor:pointer;}
+  .search-results .item:last-child{border-bottom:none;}
+  .search-results .item b{color:var(--teal-dark);}
+  .search-results .item span{color:var(--muted);font-size:.76rem;display:block;}
+  .search-results .empty2{padding:10px 12px;font-size:.8rem;color:var(--muted);}
+
+  .summary-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+  .summary-card{flex:1;min-width:70px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 8px;text-align:center;}
+  .summary-card.warncard{border-color:var(--red);background:var(--red-soft);}
+  .summary-card .num{font-size:1.2rem;font-weight:700;color:var(--teal-dark);}
+  .summary-card.warncard .num{color:var(--red);}
+  .summary-card .lbl{font-size:.64rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+
+  .alert-banner{display:none;background:var(--red-soft);border:1px solid var(--red);color:#7a2a1a;border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:.82rem;}
+  .alert-banner b{display:block;margin-bottom:4px;font-size:.85rem;}
+  .alert-banner ul{margin:0;padding-left:18px;}
+  .closed-banner{display:none;background:#eceff0;border:1px solid #b7c2c0;color:#3c4a48;border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:.82rem;}
+
+  .unit-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--teal);border-radius:var(--radius);padding:12px;margin-bottom:10px;scroll-margin-top:180px;}
+  .unit-card.done{border-left-color:#4c8c66;}
+  .unit-card.warn{border-left-color:var(--red);}
+  .unit-card.sinacceso{border-left-color:var(--amber);}
+  .unit-card.danado{border-left-color:var(--red);}
+  .unit-card.deshabitado{border-left-color:#9aa8a6;}
+  .unit-card.locked{border-left-color:#9aa8a6;background:#f7f9f8;}
+  .unit-card.flash{animation:flashbg 1.6s ease;}
+  @keyframes flashbg{ 0%{background:#fff3cf;} 100%{background:var(--card);} }
+  .unit-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px;}
+  .unit-head .depto{font-weight:700;font-size:1rem;}
+  .unit-head .medidor{font-size:.72rem;color:var(--muted);}
+  .autor-line{font-size:.68rem;color:var(--muted);margin:-4px 0 8px;}
+  .autor-line.locked-msg{color:#8a6d1f;background:var(--amber-soft);padding:4px 8px;border-radius:6px;display:inline-block;}
+  .badge-ok{font-size:.66rem;font-weight:700;color:#2f6b46;background:#e2f3e6;padding:3px 8px;border-radius:12px;}
+  .badge-warn{font-size:.66rem;font-weight:700;color:var(--red);background:var(--red-soft);padding:3px 8px;border-radius:12px;}
+  .badge-locked{font-size:.66rem;font-weight:700;color:#6b6b6b;background:#e9e9e6;padding:3px 8px;border-radius:12px;}
+  .badge-estado{font-size:.66rem;font-weight:700;padding:3px 8px;border-radius:12px;}
+  .badge-estado.sinacceso{color:#8a6d1f;background:var(--amber-soft);}
+  .badge-estado.danado{color:var(--red);background:var(--red-soft);}
+  .badge-estado.deshabitado{color:#4a5654;background:#e9ecec;}
+  select.in-estado{margin-bottom:8px;font-size:.85rem;padding:8px;}
+  .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
+  .field-grid label{font-size:.68rem;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px;}
+  input:disabled, textarea:disabled, select:disabled{background:#f0f2f1;color:#6b7c79;}
+  .consumo-line{display:flex;justify-content:space-between;align-items:center;background:var(--teal-soft);border-radius:6px;padding:6px 10px;margin-top:4px;font-size:.85rem;}
+  .consumo-line b{color:var(--teal-dark);}
+  .consumo-line.alerta{background:var(--red-soft);}
+  .consumo-line.alerta b{color:var(--red);}
+  .anom-tag{font-size:.7rem;color:var(--red);margin-top:3px;font-weight:600;}
+  .unit-tools{display:flex;gap:8px;margin-top:9px;}
+  .btn-mini{flex:1;border:1px solid var(--line);background:#fbfbfa;border-radius:7px;padding:8px 6px;font-size:.78rem;font-weight:600;color:var(--teal-dark);display:flex;align-items:center;justify-content:center;gap:5px;cursor:pointer;}
+  .btn-mini.has-photo{background:var(--teal-soft);border-color:var(--teal);}
+  .btn-mini.foto-pend{background:var(--amber-soft);border-color:var(--amber);}
+  .btn-mini[disabled]{opacity:.4;cursor:not-allowed;}
+  textarea{width:100%;font-family:inherit;font-size:.85rem;border:1px solid var(--line);border-radius:7px;padding:7px 9px;margin-top:6px;resize:vertical;min-height:32px;}
+
+  .cfg-section{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:14px;}
+  .cfg-section h3{margin:0 0 4px;font-size:.92rem;color:var(--teal-dark);}
+  .cfg-section p.hint{margin:0 0 10px;font-size:.76rem;color:var(--muted);line-height:1.4;}
+  .cfg-list-item{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
+  .cfg-list-item input{flex:1;}
+  .cfg-list-item select{flex:0 0 110px;}
+  .icon-btn{border:none;background:var(--teal-soft);color:var(--teal-dark);width:34px;height:34px;border-radius:7px;font-size:1rem;cursor:pointer;flex-shrink:0;}
+  .icon-btn.del{background:var(--red-soft);color:var(--red);}
+  .add-btn{width:100%;padding:10px;border:1.5px dashed var(--teal);background:transparent;color:var(--teal-dark);border-radius:8px;font-weight:600;font-size:.85rem;cursor:pointer;margin-top:4px;}
+  .piso-block{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;background:#fbfcfb;}
+  .piso-block-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .piso-block-head b{font-size:.83rem;}
+  .file-btn{display:block;width:100%;text-align:center;padding:11px;border-radius:8px;border:1.5px solid var(--teal);background:var(--teal-soft);color:var(--teal-dark);font-weight:700;font-size:.85rem;cursor:pointer;}
+  .import-result{font-size:.78rem;margin-top:8px;padding:8px 10px;border-radius:7px;background:var(--paper);border:1px solid var(--line);white-space:pre-line;}
+  .umbral-row{display:flex;gap:10px;flex-wrap:wrap;}
+  .umbral-row div{flex:1;min-width:110px;}
+  .umbral-row label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:4px;}
+  .warn-note{font-size:.74rem;color:#8a6d1f;background:var(--amber-soft);border-radius:7px;padding:8px 10px;margin-top:10px;line-height:1.4;}
+  .periodo-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:.85rem;}
+  .periodo-row:last-child{border-bottom:none;}
+  .periodo-row .pname{font-weight:600;}
+  .periodo-row .pcount{font-size:.72rem;color:var(--muted);}
+  .periodo-row button{border:1px solid var(--line);background:#fbfbfa;border-radius:7px;padding:6px 10px;font-size:.76rem;font-weight:600;cursor:pointer;color:var(--teal-dark);}
+  .periodo-row button.cerrado{background:var(--teal-soft);border-color:var(--teal);}
+  .estado-badge-mini{font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:9px;margin-left:6px;}
+  .estado-badge-mini.abierto{background:#e2f3e6;color:#2f6b46;}
+  .estado-badge-mini.cerrado{background:#eceff0;color:#3c4a48;}
+
+  .anom-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:6px;}
+  .anom-toolbar label{font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:6px;}
+  .anom-item{background:var(--card);border:1px solid var(--red);border-left:4px solid var(--red);border-radius:var(--radius);padding:12px;margin-bottom:10px;}
+  .anom-item.revisada{border-color:var(--line);border-left-color:#8ba39d;opacity:.65;}
+  .anom-item .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;}
+  .anom-item .loc{font-weight:700;font-size:.9rem;}
+  .anom-item .per{font-size:.72rem;color:var(--muted);}
+  .anom-item .motivo{font-size:.82rem;color:var(--red);font-weight:600;margin-bottom:6px;}
+  .anom-item .vals{font-size:.8rem;color:var(--ink);margin-bottom:8px;}
+  .anom-item .vals b{color:var(--teal-dark);}
+  .anom-item .actions{display:flex;gap:8px;}
+  .anom-item .actions button{flex:1;border:1px solid var(--line);background:#fbfbfa;border-radius:7px;padding:7px;font-size:.76rem;font-weight:600;color:var(--teal-dark);cursor:pointer;}
+  .anom-item .actions button[disabled]{opacity:.4;cursor:not-allowed;}
+
+  .action-bar{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);display:flex;gap:6px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));z-index:30;box-shadow:0 -3px 10px rgba(0,0,0,.06);}
+  .action-bar button{flex:1;border:none;border-radius:8px;padding:11px 4px;font-size:.7rem;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;color:#fff;}
+  .action-bar .b-save{background:var(--teal);}
+  .action-bar .b-xlsx{background:#1c7a4a;}
+  .action-bar .b-pdf{background:#a8391f;}
+  .action-bar .b-mail{background:#3a5d8f;}
+  .action-bar button .ic{font-size:1.05rem;}
+  .action-bar button[disabled]{opacity:.45;}
+
+  .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:9px 16px;border-radius:20px;font-size:.82rem;z-index:50;opacity:0;pointer-events:none;transition:opacity .25s;max-width:88%;text-align:center;}
+  .toast.show{opacity:1;}
+  .empty{text-align:center;color:var(--muted);padding:40px 16px;font-size:.88rem;}
+  input[type=file]{display:none;}
+
+  #loginOverlay{position:fixed;inset:0;background:linear-gradient(160deg,var(--teal-dark),#082e2b);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .login-card{background:#fff;border-radius:14px;padding:26px 22px;width:100%;max-width:360px;box-shadow:0 10px 30px rgba(0,0,0,.3);}
+  .login-card h2{margin:0 0 2px;color:var(--teal-dark);font-size:1.15rem;}
+  .login-card p.sub{margin:0 0 18px;color:var(--muted);font-size:.8rem;}
+  .login-card label{font-size:.75rem;color:var(--muted);display:block;margin:10px 0 4px;}
+  .login-card button{width:100%;margin-top:16px;padding:12px;background:var(--teal);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:.9rem;cursor:pointer;}
+  .login-error{color:var(--red);font-size:.8rem;margin-top:10px;display:none;}
+  .login-note{font-size:.68rem;color:var(--muted);margin-top:16px;line-height:1.4;border-top:1px solid var(--line);padding-top:10px;}
+
+  @media print{
+    header.app, .action-bar, .selector-row, .search-wrap, .summary-bar, .alert-banner, .closed-banner, .unit-tools .btn-mini.b-foto, nav.tabs, #loginOverlay{display:none !important;}
+    body{background:#fff;padding:0;}
+    main{max-width:100%;padding:0;}
+    .unit-card{border:1px solid #999;break-inside:avoid;margin-bottom:8px;}
+    .print-header{display:block !important;margin-bottom:14px;}
+  }
+  .print-header{display:none;}
+  .print-header h1{font-size:1.1rem;margin:0 0 2px;}
+  .print-header p{font-size:.8rem;color:#555;margin:0;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginOverlay">
+  <div class="login-card">
+    <h2>Lecturas de Medidores</h2>
+    <p class="sub">Jardines de Vicuña Mackenna — ingresa con tu usuario</p>
+    <label>Usuario</label>
+    <input type="text" id="loginUsuario" autocomplete="username" placeholder="ej: admin">
+    <label>Contraseña</label>
+    <input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••">
+    <div class="login-error" id="loginError">Usuario o contraseña incorrectos.</div>
+    <button id="btnLogin">Ingresar</button>
+    <div class="login-note">Usuario inicial: <b>admin</b> / <b>admin123</b>. Cámbialo y crea usuarios de "Tomador de registro" desde Configuración → Usuarios una vez dentro.</div>
+  </div>
+</div>
+
+<header class="app">
+  <div class="row">
+    <div class="brand"><b>JDVM</b><span>Lecturas de medidores</span></div>
+    <div class="periodo-chip">📅 <input id="periodoInput" type="text" value="Agosto 2026"></div>
+  </div>
+  <div class="user-bar">
+    <div class="who">👤 <span id="userNombre">—</span> <span class="rolechip" id="userRol">—</span></div>
+    <div class="right">
+      <span class="conn-chip" id="connChip">🟢 En línea</span>
+      <button class="pend-chip" id="pendChip" style="display:none;">⏳ 0 por sincronizar</button>
+      <button class="logout" id="btnLogout">Salir</button>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="active" data-tab="lecturas">Lecturas</button>
+    <button data-tab="anomalias">Anomalías<span class="tab-badge" id="badgeAnom" style="display:none;">0</span></button>
+    <button data-tab="config" id="navConfig" hidden>Configuración</button>
+  </nav>
+</header>
+
+<main>
+  <div class="print-header"><h1>Comunidad Jardines de Vicuña Mackenna — Lecturas de medidores</h1><p id="printSub"></p></div>
+
+  <!-- TAB LECTURAS -->
+  <section id="tab-lecturas">
+    <div class="selector-row">
+      <select id="selTorre"></select>
+      <select id="selPiso"></select>
+      <button class="nextbtn" id="btnSiguientePendiente" title="Ir al próximo piso con lecturas pendientes">⏭</button>
+    </div>
+
+    <div class="search-wrap">
+      <input type="text" id="buscadorUnidad" placeholder="🔍 Buscar por depto o N° de medidor...">
+      <div class="search-results" id="searchResults"></div>
+    </div>
+
+    <div class="closed-banner" id="closedBanner">🔒 Este periodo está cerrado. Solo un administrador puede reabrirlo desde Configuración → Periodos.</div>
+    <div class="alert-banner" id="alertBanner"></div>
+
+    <div class="summary-bar">
+      <div class="summary-card"><div class="num" id="sumUnidades">0</div><div class="lbl">Unidades</div></div>
+      <div class="summary-card"><div class="num" id="sumTomadas">0</div><div class="lbl">Procesadas</div></div>
+      <div class="summary-card" id="cardAnomPiso"><div class="num" id="sumAnomPiso">0</div><div class="lbl">Anomalías piso</div></div>
+    </div>
+
+    <div id="unitList"></div>
+  </section>
+
+  <!-- TAB ANOMALIAS -->
+  <section id="tab-anomalias" style="display:none;">
+    <div class="anom-toolbar">
+      <label><input type="checkbox" id="chkMostrarRevisadas"> Mostrar revisadas</label>
+      <span style="font-size:.78rem;color:var(--muted);" id="anomCountLbl">0 anomalías</span>
+    </div>
+    <div id="anomList"></div>
+  </section>
+
+  <!-- TAB CONFIG (solo admin) -->
+  <section id="tab-config" style="display:none;">
+
+    <div class="cfg-section">
+      <h3>Usuarios</h3>
+      <p class="hint">Un usuario "Tomador de registro" solo puede editar las lecturas que él mismo ingresó. El rol "Administrador" ve y edita todo.</p>
+      <div id="userConfigList"></div>
+      <button class="add-btn" id="addUsuario">+ Agregar usuario</button>
+      <div class="warn-note">⚠ Este control de acceso es a nivel de la app (organiza quién registró qué). No es un sistema de autenticación con cifrado de servidor — trata usuarios y contraseñas con el mismo cuidado que cualquier credencial.</div>
+    </div>
+
+    <div class="cfg-section">
+      <h3>Periodos</h3>
+      <p class="hint">Cierra un periodo una vez que ya generaste los gastos comunes con esas lecturas, para que nadie pueda modificarlas después por error. Se puede reabrir si es necesario.</p>
+      <div id="periodosList"></div>
+    </div>
+
+    <div class="cfg-section">
+      <h3>Umbrales de alerta</h3>
+      <p class="hint">Se usan como referencia mínima/máxima general. Además, la app compara cada unidad contra su propio historial de consumo cuando ya tiene al menos 2 lecturas anteriores.</p>
+      <div class="umbral-row">
+        <div><label>Consumo mínimo esperado (m³)</label><input type="number" step="0.1" id="umbralMin" value="1"></div>
+        <div><label>Consumo máximo esperado (m³)</label><input type="number" step="0.1" id="umbralMax" value="60"></div>
+        <div><label>% desvío vs. historial propio</label><input type="number" step="5" id="umbralDesvio" value="50"></div>
+      </div>
+    </div>
+
+    <div class="cfg-section">
+      <h3>Reportes</h3>
+      <p class="hint">Exporta un Excel con una columna por cada periodo registrado, para ver la evolución de consumo de cada unidad sin exportar mes a mes.</p>
+      <button class="add-btn" id="btnHistorico">📈 Exportar histórico consolidado</button>
+    </div>
+
+    <div class="cfg-section">
+      <h3>Importar lecturas de un mes anterior</h3>
+      <p class="hint">Sube un Excel (.xlsx/.csv) con columnas <b>Torre, Piso, Depto, Lectura</b> (Piso es opcional si el Depto ya existe en la configuración).</p>
+      <label style="font-size:.75rem;color:var(--muted);">Nombre del periodo a importar</label>
+      <input type="text" id="importPeriodo" placeholder="Ej: Julio 2026" style="margin:5px 0 10px;">
+      <label class="file-btn" for="importFile">📥 Elegir archivo e importar</label>
+      <input type="file" id="importFile" accept=".xlsx,.xls,.csv">
+      <div class="import-result" id="importResult" style="display:none;"></div>
+    </div>
+
+    <div class="cfg-section">
+      <h3>Torres</h3>
+      <div id="torreList"></div>
+      <button class="add-btn" id="addTorre">+ Agregar torre</button>
+    </div>
+
+    <div class="cfg-section" id="pisoConfigWrap">
+      <h3>Pisos y unidades — <span id="torreConfigNombre"></span></h3>
+      <select id="selTorreConfig" style="margin-bottom:12px;"></select>
+      <div id="pisoConfigList"></div>
+      <button class="add-btn" id="addPiso">+ Agregar piso</button>
+    </div>
+
+    <div class="cfg-section">
+      <h3>Datos para el correo</h3>
+      <label style="font-size:.75rem;color:var(--muted);">Correo(s) destino (separados por coma)</label>
+      <input type="text" id="emailDestino" placeholder="administracion@jdvm.cl" style="margin-top:5px;">
+    </div>
+
+    <div class="cfg-section">
+      <h3>Respaldo en Google Sheets + fotos en Drive</h3>
+      <p class="hint">Pega aquí la URL de la aplicación web de Apps Script (ver archivo Code.gs). Cada lectura, foto o importación se envía sola. Sin conexión, los datos quedan guardados en el celular y se reintentan solos o con el botón de abajo.</p>
+      <label style="font-size:.75rem;color:var(--muted);">URL de la aplicación web (Apps Script)</label>
+      <input type="text" id="sheetsUrl" placeholder="https://script.google.com/macros/s/XXXX/exec" style="margin:5px 0 10px;">
+      <button class="add-btn" id="btnSyncAll">🔄 Sincronizar todo ahora</button>
+      <div class="import-result" id="syncStatus" style="display:block;margin-top:10px;">Sin sincronizar todavía.</div>
+    </div>
+  </section>
+</main>
+
+<div class="action-bar">
+  <button class="b-save" id="btnSave"><span class="ic">💾</span>Guardar</button>
+  <button class="b-xlsx" id="btnXlsx"><span class="ic">📊</span>Excel</button>
+  <button class="b-pdf" id="btnPdf"><span class="ic">🖨️</span>PDF / Imprimir</button>
+  <button class="b-mail" id="btnMail"><span class="ic">✉️</span>Correo</button>
+</div>
+
+<input type="file" id="fotoInput" accept="image/*" capture="environment">
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   ESTADO GLOBAL
+   ========================================================= */
+const DEFAULT_CONFIG = {
+  torres: [
+    { id:'A', nombre:'Torre A', pisos:[
+        { piso:1, unidades:[ {depto:'101', medidor:'MA-101'}, {depto:'102', medidor:'MA-102'}, {depto:'103', medidor:'MA-103'}, {depto:'104', medidor:'MA-104'} ]},
+        { piso:2, unidades:[ {depto:'201', medidor:'MA-201'}, {depto:'202', medidor:'MA-202'}, {depto:'203', medidor:'MA-203'}, {depto:'204', medidor:'MA-204'} ]}
+    ]},
+    { id:'B', nombre:'Torre B', pisos:[
+        { piso:1, unidades:[ {depto:'101', medidor:'MB-101'}, {depto:'102', medidor:'MB-102'}, {depto:'103', medidor:'MB-103'}, {depto:'104', medidor:'MB-104'} ]}
+    ]}
+  ]
+};
+const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
+const ESTADOS = {
+  leida:        { label:'Leída',                clase:'' },
+  sin_acceso:   { label:'Sin acceso',            clase:'sinacceso' },
+  danado:       { label:'Medidor dañado',        clase:'danado' },
+  deshabitado:  { label:'Deshabitado / sin residente', clase:'deshabitado' }
+};
+
+let CONFIG = null, USERS = [], LECTURAS = {};
+let UMBRALES = { min:1, max:60, desvio:50 };
+let SHEETS_URL = '';
+let PERIODOS_CERRADOS = [];
+let COLA_PENDIENTE = [];
+let currentUser = null;
+let currentTorre = null, currentPiso = null, currentUnitKeyForFoto = null;
+
+async function loadState(){
+  try{ const r = await window.storage.get('jdvm_config'); CONFIG = r ? JSON.parse(r.value) : DEFAULT_CONFIG; } catch(e){ CONFIG = DEFAULT_CONFIG; }
+  try{ const r2 = await window.storage.get('jdvm_lecturas'); LECTURAS = r2 ? JSON.parse(r2.value) : {}; } catch(e){ LECTURAS = {}; }
+  try{ const r3 = await window.storage.get('jdvm_email_dest'); document.getElementById('emailDestino').value = r3 ? r3.value : ''; } catch(e){}
+  try{ const r4 = await window.storage.get('jdvm_umbrales'); UMBRALES = r4 ? JSON.parse(r4.value) : {min:1,max:60,desvio:50}; } catch(e){ UMBRALES = {min:1,max:60,desvio:50}; }
+  try{ const r5 = await window.storage.get('jdvm_usuarios'); USERS = r5 ? JSON.parse(r5.value) : DEFAULT_USERS; } catch(e){ USERS = DEFAULT_USERS; }
+  try{ const r6 = await window.storage.get('jdvm_sheets_url'); SHEETS_URL = r6 ? r6.value : ''; } catch(e){ SHEETS_URL = ''; }
+  try{ const r7 = await window.storage.get('jdvm_last_sync'); if(r7) updateSyncStatus(r7.value); } catch(e){}
+  try{ const r8 = await window.storage.get('jdvm_periodos_cerrados'); PERIODOS_CERRADOS = r8 ? JSON.parse(r8.value) : []; } catch(e){ PERIODOS_CERRADOS = []; }
+  try{ const r9 = await window.storage.get('jdvm_cola_pendiente'); COLA_PENDIENTE = r9 ? JSON.parse(r9.value) : []; } catch(e){ COLA_PENDIENTE = []; }
+  document.getElementById('umbralMin').value = UMBRALES.min;
+  document.getElementById('umbralMax').value = UMBRALES.max;
+  document.getElementById('umbralDesvio').value = UMBRALES.desvio!=null ? UMBRALES.desvio : 50;
+  document.getElementById('sheetsUrl').value = SHEETS_URL;
+}
+async function saveConfig(){ try{ await window.storage.set('jdvm_config', JSON.stringify(CONFIG)); }catch(e){} }
+async function saveLecturas(){ try{ await window.storage.set('jdvm_lecturas', JSON.stringify(LECTURAS)); }catch(e){} }
+async function saveEmailDest(){ try{ await window.storage.set('jdvm_email_dest', document.getElementById('emailDestino').value); }catch(e){} }
+async function saveUsers(){ try{ await window.storage.set('jdvm_usuarios', JSON.stringify(USERS)); }catch(e){} }
+async function savePeriodosCerrados(){ try{ await window.storage.set('jdvm_periodos_cerrados', JSON.stringify(PERIODOS_CERRADOS)); }catch(e){} }
+async function saveCola(){ try{ await window.storage.set('jdvm_cola_pendiente', JSON.stringify(COLA_PENDIENTE)); }catch(e){} }
+async function saveUmbrales(){
+  UMBRALES.min = parseFloat(document.getElementById('umbralMin').value) || 0;
+  UMBRALES.max = parseFloat(document.getElementById('umbralMax').value) || 999999;
+  UMBRALES.desvio = parseFloat(document.getElementById('umbralDesvio').value) || 0;
+  try{ await window.storage.set('jdvm_umbrales', JSON.stringify(UMBRALES)); }catch(e){}
+  renderUnitList(); renderAnomalias();
+}
+
+function periodo(){ return document.getElementById('periodoInput').value.trim() || 'Sin periodo'; }
+function unitKey(torreId, piso, depto){ return `${periodo()}|${torreId}|${piso}|${depto}`; }
+function unitKeyFor(per, torreId, piso, depto){ return `${per}|${torreId}|${piso}|${depto}`; }
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+function etiquetaEstado(estado){ return (ESTADOS[estado]||ESTADOS.leida).label; }
+
+/* =========================================================
+   LOGIN / SESIÓN / PERMISOS
+   ========================================================= */
+async function tryRestoreSession(){
+  try{
+    const r = await window.storage.get('jdvm_sesion_actual');
+    if(!r) return false;
+    const sess = JSON.parse(r.value);
+    const u = USERS.find(u=>u.usuario===sess.usuario);
+    if(!u) return false;
+    currentUser = { usuario:u.usuario, nombre:u.nombre, rol:u.rol };
+    return true;
+  }catch(e){ return false; }
+}
+document.getElementById('btnLogin').addEventListener('click', doLogin);
+document.getElementById('loginPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+async function doLogin(){
+  const usuario = document.getElementById('loginUsuario').value.trim();
+  const pass = document.getElementById('loginPassword').value;
+  const u = USERS.find(u=> u.usuario.toLowerCase()===usuario.toLowerCase() && u.password===pass);
+  const errBox = document.getElementById('loginError');
+  if(!u){ errBox.style.display='block'; return; }
+  errBox.style.display='none';
+  currentUser = { usuario:u.usuario, nombre:u.nombre, rol:u.rol };
+  try{ await window.storage.set('jdvm_sesion_actual', JSON.stringify({usuario:u.usuario})); }catch(e){}
+  document.getElementById('loginUsuario').value=''; document.getElementById('loginPassword').value='';
+  enterApp();
+}
+document.getElementById('btnLogout').addEventListener('click', async ()=>{
+  try{ await window.storage.delete('jdvm_sesion_actual'); }catch(e){}
+  currentUser = null;
+  document.getElementById('loginOverlay').style.display='flex';
+});
+function enterApp(){
+  document.getElementById('loginOverlay').style.display='none';
+  document.getElementById('userNombre').textContent = currentUser.nombre;
+  document.getElementById('userRol').textContent = currentUser.rol==='admin' ? 'Administrador' : 'Tomador de registro';
+  document.getElementById('navConfig').hidden = currentUser.rol!=='admin';
+  if(currentUser.rol!=='admin' && document.getElementById('tab-config').style.display!=='none'){
+    document.querySelector('nav.tabs button[data-tab=lecturas]').click();
+  }
+  populateTorreSelect();
+  refreshAnomBadge();
+  refreshConnUI();
+}
+function esAdmin(){ return currentUser && currentUser.rol==='admin'; }
+function periodoCerrado(per){ return PERIODOS_CERRADOS.includes(per); }
+function puedeEditar(reg){
+  if(periodoCerrado(periodo())) return false;
+  if(!reg || !reg.autor) return true;
+  if(esAdmin()) return true;
+  return reg.autor === currentUser.usuario;
+}
+
+/* =========================================================
+   CONEXIÓN Y COLA PENDIENTE
+   ========================================================= */
+function refreshConnUI(){
+  const chip = document.getElementById('connChip');
+  const online = navigator.onLine;
+  chip.textContent = online ? '🟢 En línea' : '🔴 Sin conexión';
+  chip.className = 'conn-chip ' + (online?'on':'off');
+  const pendChip = document.getElementById('pendChip');
+  if(COLA_PENDIENTE.length>0){ pendChip.style.display='inline-block'; pendChip.textContent = `⏳ ${COLA_PENDIENTE.length} por sincronizar`; }
+  else pendChip.style.display='none';
+}
+window.addEventListener('online', ()=>{ refreshConnUI(); reintentarCola(); });
+window.addEventListener('offline', refreshConnUI);
+document.getElementById('pendChip').addEventListener('click', reintentarCola);
+async function reintentarCola(){
+  if(COLA_PENDIENTE.length===0) return;
+  const claves = [...COLA_PENDIENTE];
+  await enviarASheets(buildRowsForKeys(claves), {silencioso:true, clavesOriginales:claves});
+}
+
+/* =========================================================
+   DETECCIÓN DE ANOMALÍAS (umbral fijo + comparación con historial propio)
+   ========================================================= */
+function historialConsumos(torreId, depto, excluirPeriodo){
+  const out = [];
+  for(const k in LECTURAS){
+    const [per, tId, , dep] = k.split('|');
+    if(tId!==torreId || dep!==depto || per===excluirPeriodo) continue;
+    const reg = LECTURAS[k];
+    if((reg.estado||'leida')!=='leida') continue;
+    if(reg.actual==null || reg.anterior==null) continue;
+    out.push({ periodo:per, consumo: reg.actual-reg.anterior, fecha: reg.horaGuardado||'' });
+  }
+  out.sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
+  return out.slice(0,6);
+}
+function detectarAnomalia(anterior, actual, torreId, depto){
+  if(anterior==null || anterior==='' || actual==null || actual==='') return null;
+  const a = parseFloat(anterior), b = parseFloat(actual);
+  if(isNaN(a) || isNaN(b)) return null;
+  const consumo = b - a;
+  if(consumo < 0) return {tipo:'negativo', consumo, motivo:'Lectura actual MENOR que la anterior (posible error de digitación o cambio de medidor)'};
+  if(consumo === 0) return {tipo:'igual', consumo, motivo:'Lectura actual IGUAL a la anterior (consumo cero)'};
+  if(consumo < UMBRALES.min) return {tipo:'bajo', consumo, motivo:`Consumo inusualmente bajo (menor a ${UMBRALES.min} m³)`};
+  if(consumo > UMBRALES.max) return {tipo:'alto', consumo, motivo:`Consumo inusualmente alto (mayor a ${UMBRALES.max} m³)`};
+  if(torreId && depto && UMBRALES.desvio>0){
+    const hist = historialConsumos(torreId, depto, periodo());
+    if(hist.length>=2){
+      const promedio = hist.reduce((s,h)=>s+h.consumo,0)/hist.length;
+      if(promedio>0.01){
+        const desvioPct = Math.abs(consumo-promedio)/promedio*100;
+        if(desvioPct > UMBRALES.desvio){
+          return {tipo:'desvio_historico', consumo, motivo:`Se desvía ${desvioPct.toFixed(0)}% del promedio histórico de esta unidad (~${promedio.toFixed(1)} m³ en sus últimas ${hist.length} lecturas)`};
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/* =========================================================
+   TABS
+   ========================================================= */
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    if(btn.hidden) return;
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.getElementById('tab-lecturas').style.display = tab==='lecturas' ? 'block':'none';
+    document.getElementById('tab-anomalias').style.display = tab==='anomalias' ? 'block':'none';
+    document.getElementById('tab-config').style.display = tab==='config' ? 'block':'none';
+    if(tab==='config' && esAdmin()) renderConfig();
+    if(tab==='anomalias') renderAnomalias();
+  });
+});
+
+/* =========================================================
+   SELECTORES TORRE / PISO
+   ========================================================= */
+function populateTorreSelect(){
+  const sel = document.getElementById('selTorre');
+  sel.innerHTML = CONFIG.torres.map(t=>`<option value="${t.id}">${t.nombre}</option>`).join('');
+  if(!currentTorre || !CONFIG.torres.find(t=>t.id===currentTorre)) currentTorre = CONFIG.torres[0] ? CONFIG.torres[0].id : null;
+  sel.value = currentTorre;
+  populatePisoSelect();
+}
+function populatePisoSelect(){
+  const torre = CONFIG.torres.find(t=>t.id===currentTorre);
+  const sel = document.getElementById('selPiso');
+  if(!torre || torre.pisos.length===0){ sel.innerHTML=''; currentPiso=null; renderUnitList(); return; }
+  sel.innerHTML = torre.pisos.map(p=>`<option value="${p.piso}">Piso ${p.piso}</option>`).join('');
+  if(currentPiso==null || !torre.pisos.find(p=>p.piso==currentPiso)) currentPiso = torre.pisos[0].piso;
+  sel.value = currentPiso;
+  renderUnitList();
+}
+document.getElementById('selTorre').addEventListener('change', e=>{ currentTorre=e.target.value; currentPiso=null; populatePisoSelect(); });
+document.getElementById('selPiso').addEventListener('change', e=>{ currentPiso=e.target.value; renderUnitList(); });
+document.getElementById('periodoInput').addEventListener('change', ()=>{ renderUnitList(); refreshAnomBadge(); });
+
+/* =========================================================
+   NAVEGAR AL SIGUIENTE PISO PENDIENTE
+   ========================================================= */
+function unidadProcesada(reg){
+  if(!reg) return false;
+  const estado = reg.estado || 'leida';
+  if(estado!=='leida') return true;
+  return reg.actual!=null;
+}
+function pisoTienePendientes(torreId, piso, unidades){
+  for(const u of unidades){
+    const reg = LECTURAS[unitKey(torreId, piso, u.depto)];
+    if(!unidadProcesada(reg)) return true;
+  }
+  return false;
+}
+document.getElementById('btnSiguientePendiente').addEventListener('click', ()=>{
+  const flat = [];
+  CONFIG.torres.forEach(t=> t.pisos.forEach(p=> flat.push({torreId:t.id, piso:p.piso, unidades:p.unidades})));
+  if(flat.length===0){ toast('No hay torres/pisos configurados'); return; }
+  let idxActual = flat.findIndex(f=> f.torreId===currentTorre && String(f.piso)===String(currentPiso));
+  for(let i=1;i<=flat.length;i++){
+    const cand = flat[(idxActual+i+flat.length)%flat.length];
+    if(pisoTienePendientes(cand.torreId, cand.piso, cand.unidades)){
+      currentTorre = cand.torreId; currentPiso = cand.piso;
+      document.getElementById('selTorre').value = currentTorre;
+      populatePisoSelect();
+      document.getElementById('selPiso').value = currentPiso;
+      renderUnitList();
+      toast(`Siguiente pendiente: ${(CONFIG.torres.find(t=>t.id===cand.torreId)||{}).nombre} · Piso ${cand.piso}`);
+      return;
+    }
+  }
+  toast('🎉 No quedan unidades pendientes en este periodo');
+});
+
+/* =========================================================
+   BUSCADOR DE UNIDAD
+   ========================================================= */
+const buscadorInput = document.getElementById('buscadorUnidad');
+const searchResultsBox = document.getElementById('searchResults');
+buscadorInput.addEventListener('input', ()=>{
+  const q = buscadorInput.value.trim().toLowerCase();
+  if(q.length<1){ searchResultsBox.classList.remove('show'); searchResultsBox.innerHTML=''; return; }
+  const results = [];
+  CONFIG.torres.forEach(t=> t.pisos.forEach(p=> p.unidades.forEach(u=>{
+    if(u.depto.toLowerCase().includes(q) || (u.medidor||'').toLowerCase().includes(q)){
+      results.push({torreId:t.id, torreNombre:t.nombre, piso:p.piso, depto:u.depto, medidor:u.medidor});
+    }
+  })));
+  searchResultsBox.classList.add('show');
+  if(results.length===0){ searchResultsBox.innerHTML = '<div class="empty2">Sin coincidencias</div>'; return; }
+  searchResultsBox.innerHTML = results.slice(0,20).map(r=>`
+    <div class="item" data-torre="${r.torreId}" data-piso="${r.piso}" data-depto="${r.depto}">
+      <b>Depto ${r.depto}</b> — ${r.torreNombre}, Piso ${r.piso}
+      <span>Medidor ${r.medidor||'—'}</span>
+    </div>`).join('');
+  searchResultsBox.querySelectorAll('.item').forEach(it=>{
+    it.addEventListener('click', ()=>{
+      currentTorre = it.dataset.torre; currentPiso = it.dataset.piso;
+      document.getElementById('selTorre').value = currentTorre;
+      populatePisoSelect();
+      document.getElementById('selPiso').value = currentPiso;
+      renderUnitList();
+      searchResultsBox.classList.remove('show'); buscadorInput.value='';
+      setTimeout(()=>{
+        const target = document.querySelector(`.unit-card[data-key$="|${it.dataset.depto}"]`);
+        if(target){ target.scrollIntoView({behavior:'smooth', block:'center'}); target.classList.add('flash'); setTimeout(()=>target.classList.remove('flash'), 1600); }
+      }, 60);
+    });
+  });
+});
+
+/* =========================================================
+   RENDER LISTA DE UNIDADES
+   ========================================================= */
+function getUnidadesActuales(){
+  const torre = CONFIG.torres.find(t=>t.id===currentTorre);
+  if(!torre) return [];
+  const pisoObj = torre.pisos.find(p=>p.piso==currentPiso);
+  return pisoObj ? pisoObj.unidades : [];
+}
+function findLecturaAnterior(torreId, depto){
+  const keyActual = unitKey(torreId, currentPiso, depto);
+  if(LECTURAS[keyActual] && LECTURAS[keyActual].anterior!=null) return LECTURAS[keyActual].anterior;
+  let mejor = null, mejorFecha = null;
+  for(const k in LECTURAS){
+    const [per, tId, , dep] = k.split('|');
+    if(tId===torreId && dep===depto && per!==periodo()){
+      const reg = LECTURAS[k];
+      if((reg.estado||'leida')!=='leida') continue;
+      if(reg.actual!=null && (!mejorFecha || (reg.horaGuardado||'') > mejorFecha)){ mejor = reg.actual; mejorFecha = reg.horaGuardado||''; }
+    }
+  }
+  return mejor;
+}
+
+function renderUnitList(){
+  if(!currentUser) return;
+  const list = document.getElementById('unitList');
+  const unidades = getUnidadesActuales();
+  const torreNombre = (CONFIG.torres.find(t=>t.id===currentTorre)||{}).nombre || '';
+  document.getElementById('printSub').textContent = `${torreNombre} · Piso ${currentPiso||''} · Periodo ${periodo()}`;
+  document.getElementById('alertBanner').style.display = 'none';
+
+  const cerrado = periodoCerrado(periodo());
+  document.getElementById('closedBanner').style.display = cerrado ? 'block' : 'none';
+  document.getElementById('btnSave').disabled = cerrado;
+
+  if(unidades.length===0){
+    list.innerHTML = `<div class="empty">No hay unidades configuradas para este piso.${esAdmin() ? '<br>Ve a Configuración para agregarlas.' : '<br>Pide a un administrador que las configure.'}</div>`;
+    updateSummary(0,0,0);
+    return;
+  }
+
+  let html = '';
+  let procesadas = 0, anomPiso = 0;
+  for(const u of unidades){
+    const key = unitKey(currentTorre, currentPiso, u.depto);
+    let reg = LECTURAS[key];
+    const estado = (reg && reg.estado) || 'leida';
+    let anteriorSugerida = reg && reg.anterior!=null ? reg.anterior : findLecturaAnterior(currentTorre, u.depto);
+    const actualVal = reg && reg.actual!=null ? reg.actual : '';
+    const anteriorVal = anteriorSugerida!=null ? anteriorSugerida : '';
+    const obsVal = reg && reg.obs ? reg.obs : '';
+    const hasFoto = !!(reg && reg.tieneFoto);
+    const fotoUrl = reg && reg.fotoUrl;
+    const editable = puedeEditar(reg) && !cerrado;
+    let consumo = '';
+    let anom = null;
+    if(estado==='leida'){
+      anom = detectarAnomalia(anteriorVal, actualVal, currentTorre, u.depto);
+      if(anom) anomPiso++;
+      if(actualVal!=='' && anteriorVal!=='') consumo = (parseFloat(actualVal) - parseFloat(anteriorVal));
+    }
+    if(unidadProcesada(reg)) procesadas++;
+
+    const dis = editable ? '' : 'disabled';
+    const disLectura = (editable && estado==='leida') ? '' : 'disabled';
+    const estadoClase = ESTADOS[estado] ? ESTADOS[estado].clase : '';
+    let badgeExtra = '';
+    if(anom) badgeExtra = '<span class="badge-warn">⚠ Anomalía</span>';
+    else if(estado!=='leida') badgeExtra = `<span class="badge-estado ${estadoClase}">${etiquetaEstado(estado)}</span>`;
+    else if(!editable) badgeExtra = '<span class="badge-locked">🔒 Solo lectura</span>';
+    else if(actualVal!=='') badgeExtra = '<span class="badge-ok">Tomada</span>';
+
+    html += `
+    <div class="unit-card ${actualVal!==''&&estado==='leida'?'done':''} ${anom?'warn':''} ${estado!=='leida'?estadoClase:''} ${editable?'':'locked'}" data-key="${key}" data-editable="${editable}">
+      <div class="unit-head">
+        <div>
+          <div class="depto">Depto ${u.depto}</div>
+          <div class="medidor">Medidor ${u.medidor}</div>
+        </div>
+        ${badgeExtra}
+      </div>
+      ${reg && reg.autor ? `<div class="autor-line ${editable?'':'locked-msg'}">${editable ? 'Registrado por ti' : `Registrado por ${reg.autorNombre||reg.autor} — no puedes editar este registro`}</div>` : ''}
+      <select class="in-estado" ${dis}>
+        ${Object.keys(ESTADOS).map(k=>`<option value="${k}" ${estado===k?'selected':''}>${ESTADOS[k].label}</option>`).join('')}
+      </select>
+      <div class="field-grid">
+        <div><label>Lectura anterior</label><input type="number" step="0.01" class="in-anterior" value="${anteriorVal}" ${disLectura}></div>
+        <div><label>Lectura actual</label><input type="number" step="0.01" class="in-actual" value="${actualVal}" placeholder="0.00" ${disLectura}></div>
+      </div>
+      <div class="consumo-line ${anom?'alerta':''}">
+        <span>Consumo del periodo</span>
+        <b class="consumo-val">${estado!=='leida' ? 'N/A' : (consumo!=='' && !isNaN(consumo) ? consumo.toFixed(2)+' m³' : '—')}</b>
+      </div>
+      ${anom ? `<div class="anom-tag">⚠ ${anom.motivo}</div>` : ''}
+      <textarea class="in-obs" placeholder="Observaciones (opcional)" ${dis}>${obsVal}</textarea>
+      <div class="unit-tools">
+        <div class="btn-mini b-foto ${hasFoto?(fotoUrl?'has-photo':'foto-pend'):''}" data-key="${key}" ${editable?'':'disabled'}>📷 ${fotoUrl?'Foto en Drive ✓':(hasFoto?'Foto por subir…':'Tomar foto')}</div>
+      </div>
+    </div>`;
+  }
+  list.innerHTML = html;
+  updateSummary(unidades.length, procesadas, anomPiso);
+  attachUnitEvents();
+}
+
+function updateSummary(total, procesadas, anomPiso){
+  document.getElementById('sumUnidades').textContent = total;
+  document.getElementById('sumTomadas').textContent = procesadas;
+  document.getElementById('sumAnomPiso').textContent = anomPiso;
+  document.getElementById('cardAnomPiso').classList.toggle('warncard', anomPiso>0);
+}
+
+function attachUnitEvents(){
+  document.querySelectorAll('.unit-card').forEach(card=>{
+    if(card.dataset.editable === 'false') return;
+    const key = card.dataset.key;
+    const depto = key.split('|')[3];
+    const inActual = card.querySelector('.in-actual');
+    const inAnterior = card.querySelector('.in-anterior');
+    const inEstado = card.querySelector('.in-estado');
+    const consumoVal = card.querySelector('.consumo-val');
+    const consumoLine = card.querySelector('.consumo-line');
+    const badgeSlot = card.querySelector('.unit-head');
+
+    function aplicarEstadoCampos(){
+      const esLeida = inEstado.value==='leida';
+      inActual.disabled = !esLeida; inAnterior.disabled = !esLeida;
+    }
+    function recalc(){
+      const estado = inEstado.value;
+      let anom = null;
+      if(estado==='leida'){
+        anom = detectarAnomalia(inAnterior.value, inActual.value, currentTorre, depto);
+        const a = parseFloat(inActual.value), b = parseFloat(inAnterior.value);
+        consumoVal.textContent = (!isNaN(a) && !isNaN(b)) ? (a-b).toFixed(2)+' m³' : '—';
+      } else {
+        consumoVal.textContent = 'N/A';
+      }
+      consumoLine.classList.toggle('alerta', !!anom);
+      card.classList.toggle('warn', !!anom);
+      Object.values(ESTADOS).forEach(v=> v.clase && card.classList.remove(v.clase));
+      if(estado!=='leida' && ESTADOS[estado]) card.classList.add(ESTADOS[estado].clase);
+
+      let badge = badgeSlot.querySelector('.badge-warn, .badge-ok, .badge-locked, .badge-estado');
+      if(badge) badge.remove();
+      if(anom) badgeSlot.insertAdjacentHTML('beforeend', '<span class="badge-warn">⚠ Anomalía</span>');
+      else if(estado!=='leida') badgeSlot.insertAdjacentHTML('beforeend', `<span class="badge-estado ${ESTADOS[estado].clase}">${etiquetaEstado(estado)}</span>`);
+      else if(inActual.value!=='') badgeSlot.insertAdjacentHTML('beforeend', '<span class="badge-ok">Tomada</span>');
+
+      let anomTag = card.querySelector('.anom-tag');
+      if(anomTag) anomTag.remove();
+      if(anom) consumoLine.insertAdjacentHTML('afterend', `<div class="anom-tag">⚠ ${anom.motivo}</div>`);
+    }
+    inActual.addEventListener('input', recalc);
+    inAnterior.addEventListener('input', recalc);
+    inEstado.addEventListener('change', ()=>{ aplicarEstadoCampos(); recalc(); });
+
+    const btnFoto = card.querySelector('.b-foto');
+    if(btnFoto) btnFoto.addEventListener('click', ()=>{ currentUnitKeyForFoto = key; document.getElementById('fotoInput').click(); });
+  });
+}
+
+/* =========================================================
+   FOTO: captura local + subida a Drive
+   ========================================================= */
+document.getElementById('fotoInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file || !currentUnitKeyForFoto) return;
+  const key = currentUnitKeyForFoto;
+  const reader = new FileReader();
+  reader.onload = async function(ev){
+    const base64 = ev.target.result;
+    if(!LECTURAS[key]) LECTURAS[key] = {};
+    LECTURAS[key].tieneFoto = true;
+    await saveLecturas();
+    toast('Foto guardada en el celular ✓ subiendo a Drive…');
+    renderUnitList();
+    subirFotoADrive(key, base64);
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+async function subirFotoADrive(key, base64){
+  if(!SHEETS_URL){ toast('⚠ Configura la URL de Sheets/Drive para respaldar fotos'); return; }
+  try{
+    const resp = await fetch(SHEETS_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'foto', base64, filename: key.replace(/[^a-zA-Z0-9_-]/g,'_') })
+    });
+    const data = await resp.json().catch(()=>({ok:false}));
+    if(data.ok && data.fileUrl){
+      if(LECTURAS[key]){ LECTURAS[key].fotoUrl = data.fileUrl; await saveLecturas(); }
+      toast('Foto respaldada en Drive ✓');
+      renderUnitList();
+      // reenviar la fila para que la hoja quede con el link de la foto
+      enviarASheets(buildRowsForKeys([key]), {silencioso:true});
+    } else {
+      toast('⚠ No se pudo subir la foto a Drive (quedó guardada en el celular)');
+    }
+  }catch(err){
+    toast('⚠ Sin conexión: la foto quedó guardada en el celular, se reintentará al sincronizar');
+  }
+}
+
+/* =========================================================
+   GUARDAR + ALERTA AL MOMENTO
+   ========================================================= */
+async function collectAndSave(){
+  if(periodoCerrado(periodo())){ toast('🔒 Este periodo está cerrado, no se puede guardar'); return; }
+  const cards = document.querySelectorAll('.unit-card');
+  let guardadas = 0, bloqueadas = 0;
+  const anomalias = [];
+  const clavesGuardadas = [];
+  const now = new Date().toISOString();
+  cards.forEach(card=>{
+    if(card.dataset.editable === 'false'){ bloqueadas++; return; }
+    const key = card.dataset.key;
+    const estado = card.querySelector('.in-estado').value;
+    const actual = card.querySelector('.in-actual').value;
+    const anterior = card.querySelector('.in-anterior').value;
+    const obs = card.querySelector('.in-obs').value;
+    const prev = LECTURAS[key] || {};
+    const depto = key.split('|')[3];
+    LECTURAS[key] = {
+      estado: estado,
+      actual: (estado==='leida' && actual!=='') ? parseFloat(actual) : null,
+      anterior: (estado==='leida' && anterior!=='') ? parseFloat(anterior) : null,
+      obs: obs,
+      tieneFoto: prev.tieneFoto || false,
+      fotoUrl: prev.fotoUrl || null,
+      horaGuardado: now,
+      torre: currentTorre, piso: currentPiso,
+      autor: prev.autor || currentUser.usuario,
+      autorNombre: prev.autorNombre || currentUser.nombre,
+      revisada: (prev.revisada && prev.actual===parseFloat(actual)) ? prev.revisada : false
+    };
+    if(unidadProcesada(LECTURAS[key])) guardadas++;
+    clavesGuardadas.push(key);
+    if(estado==='leida'){
+      const anom = detectarAnomalia(anterior, actual, currentTorre, depto);
+      if(anom) anomalias.push({depto, ...anom});
+    }
+  });
+  await saveLecturas();
+  await enviarASheets(buildRowsForKeys(clavesGuardadas), {silencioso:true, clavesOriginales:clavesGuardadas});
+
+  const banner = document.getElementById('alertBanner');
+  if(anomalias.length>0){
+    banner.style.display = 'block';
+    banner.innerHTML = `<b>⚠ Se guardaron ${guardadas} lecturas — ${anomalias.length} anomalía(s) detectada(s):</b>
+      <ul>${anomalias.map(a=>`<li>Depto ${a.depto}: ${a.motivo} (consumo ${a.consumo.toFixed(2)} m³)</li>`).join('')}</ul>`;
+    toast(`⚠ Guardado con ${anomalias.length} anomalía(s) detectada(s)`);
+  } else {
+    banner.style.display = 'none';
+    toast(bloqueadas>0 ? `Guardado: ${guardadas} lecturas ✓ (${bloqueadas} de solo lectura, no editables por ti)` : `Guardado: ${guardadas} lecturas ✓ Sin anomalías`);
+  }
+  renderUnitList();
+  refreshAnomBadge();
+}
+document.getElementById('btnSave').addEventListener('click', collectAndSave);
+
+/* =========================================================
+   PANEL DE ANOMALÍAS
+   ========================================================= */
+function nombreTorre(id){ const t=CONFIG.torres.find(t=>t.id===id); return t?t.nombre:id; }
+function medidorDe(torreId, piso, depto){
+  const t = CONFIG.torres.find(t=>t.id===torreId); if(!t) return '';
+  const p = t.pisos.find(p=>p.piso==piso); if(!p) return '';
+  const u = p.unidades.find(u=>u.depto===depto); return u ? u.medidor : '';
+}
+function getAnomaliasGlobales(){
+  const out = [];
+  for(const k in LECTURAS){
+    const reg = LECTURAS[k];
+    if((reg.estado||'leida')!=='leida') continue;
+    const [per, torreId, piso, depto] = k.split('|');
+    const anom = detectarAnomalia(reg.anterior, reg.actual, torreId, depto);
+    if(anom) out.push({ key:k, periodo:per, torreId, piso, depto, anterior:reg.anterior, actual:reg.actual, autor:reg.autor, autorNombre:reg.autorNombre, revisada: !!reg.revisada, ...anom });
+  }
+  out.sort((a,b)=> (a.revisada - b.revisada) || (b.periodo.localeCompare(a.periodo)));
+  return out;
+}
+function refreshAnomBadge(){
+  const activas = getAnomaliasGlobales().filter(a=>!a.revisada);
+  const badge = document.getElementById('badgeAnom');
+  if(activas.length>0){ badge.style.display='inline-block'; badge.textContent = activas.length; } else { badge.style.display='none'; }
+}
+function renderAnomalias(){
+  const mostrarRevisadas = document.getElementById('chkMostrarRevisadas').checked;
+  let anomalias = getAnomaliasGlobales();
+  if(!mostrarRevisadas) anomalias = anomalias.filter(a=>!a.revisada);
+  const wrap = document.getElementById('anomList');
+  document.getElementById('anomCountLbl').textContent = `${anomalias.length} anomalía(s)`;
+  if(anomalias.length===0){ wrap.innerHTML = `<div class="empty">Sin anomalías${mostrarRevisadas?'':' pendientes'} 🎉</div>`; refreshAnomBadge(); return; }
+
+  wrap.innerHTML = anomalias.map(a=>{
+    const puedeGestionar = (esAdmin() || a.autor===currentUser.usuario) && !periodoCerrado(a.periodo);
+    return `
+    <div class="anom-item ${a.revisada?'revisada':''}" data-key="${a.key}">
+      <div class="top">
+        <div>
+          <div class="loc">${nombreTorre(a.torreId)} · Piso ${a.piso} · Depto ${a.depto}</div>
+          <div class="per">${a.periodo} · Medidor ${medidorDe(a.torreId,a.piso,a.depto)||'—'} ${a.autorNombre?'· Reg. por '+a.autorNombre:''} ${periodoCerrado(a.periodo)?'<span class="estado-badge-mini cerrado">Periodo cerrado</span>':''}</div>
+        </div>
+      </div>
+      <div class="motivo">⚠ ${a.motivo}</div>
+      <div class="vals">Anterior: <b>${a.anterior}</b> → Actual: <b>${a.actual}</b> · Consumo: <b>${a.consumo.toFixed(2)} m³</b></div>
+      <div class="actions">
+        <button class="btn-ir" data-torre="${a.torreId}" data-piso="${a.piso}" data-periodo="${a.periodo}">Ir a la lectura</button>
+        <button class="btn-rev" data-key="${a.key}" ${puedeGestionar?'':'disabled'}>${a.revisada?'Marcar pendiente':'Marcar revisada'}</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('.btn-ir').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.getElementById('periodoInput').value = btn.dataset.periodo;
+      currentTorre = btn.dataset.torre; currentPiso = btn.dataset.piso;
+      document.querySelector('nav.tabs button[data-tab=lecturas]').click();
+      populateTorreSelect();
+      document.getElementById('selTorre').value = currentTorre;
+      document.getElementById('selPiso').value = currentPiso;
+      renderUnitList();
+    });
+  });
+  wrap.querySelectorAll('.btn-rev').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(btn.disabled) return;
+      const k = btn.dataset.key;
+      if(LECTURAS[k]) LECTURAS[k].revisada = !LECTURAS[k].revisada;
+      await saveLecturas();
+      renderAnomalias();
+    });
+  });
+  refreshAnomBadge();
+}
+document.getElementById('chkMostrarRevisadas').addEventListener('change', renderAnomalias);
+document.getElementById('umbralMin').addEventListener('change', saveUmbrales);
+document.getElementById('umbralMax').addEventListener('change', saveUmbrales);
+document.getElementById('umbralDesvio').addEventListener('change', saveUmbrales);
+
+/* =========================================================
+   PERIODOS (cerrar / reabrir)
+   ========================================================= */
+function getPeriodosDistintos(){
+  const map = {};
+  Object.keys(LECTURAS).forEach(k=>{
+    const per = k.split('|')[0];
+    map[per] = (map[per]||0) + 1;
+  });
+  return Object.keys(map).sort().reverse().map(p=>({periodo:p, count:map[p]}));
+}
+function renderPeriodos(){
+  const wrap = document.getElementById('periodosList');
+  const periodos = getPeriodosDistintos();
+  if(periodos.length===0){ wrap.innerHTML = '<div class="empty" style="padding:16px;">Aún no hay lecturas guardadas.</div>'; return; }
+  wrap.innerHTML = periodos.map(p=>{
+    const cerrado = periodoCerrado(p.periodo);
+    return `
+    <div class="periodo-row">
+      <div><span class="pname">${p.periodo}</span><span class="estado-badge-mini ${cerrado?'cerrado':'abierto'}">${cerrado?'Cerrado':'Abierto'}</span><div class="pcount">${p.count} unidad(es) con registro</div></div>
+      <button class="${cerrado?'cerrado':''}" data-periodo="${p.periodo}">${cerrado?'Reabrir':'Cerrar'}</button>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('button[data-periodo]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const per = btn.dataset.periodo;
+      if(periodoCerrado(per)){
+        PERIODOS_CERRADOS = PERIODOS_CERRADOS.filter(p=>p!==per);
+        toast(`Periodo "${per}" reabierto`);
+      } else {
+        if(!confirm(`¿Cerrar el periodo "${per}"? Nadie podrá editar sus lecturas hasta que un administrador lo reabra.`)) return;
+        PERIODOS_CERRADOS.push(per);
+        toast(`Periodo "${per}" cerrado`);
+      }
+      await savePeriodosCerrados();
+      renderPeriodos();
+      renderUnitList();
+    });
+  });
+}
+
+/* =========================================================
+   EXPORT HISTÓRICO CONSOLIDADO
+   ========================================================= */
+document.getElementById('btnHistorico').addEventListener('click', ()=>{
+  const periodoFecha = {};
+  Object.keys(LECTURAS).forEach(k=>{
+    const per = k.split('|')[0];
+    const reg = LECTURAS[k];
+    if(reg.horaGuardado && (!periodoFecha[per] || reg.horaGuardado < periodoFecha[per])) periodoFecha[per] = reg.horaGuardado;
+    else if(!periodoFecha[per]) periodoFecha[per] = '';
+  });
+  const periodosOrdenados = Object.keys(periodoFecha).sort((a,b)=> (periodoFecha[a]||'').localeCompare(periodoFecha[b]||''));
+  if(periodosOrdenados.length===0){ toast('No hay datos para exportar'); return; }
+
+  const filas = [];
+  for(const t of CONFIG.torres){
+    for(const p of t.pisos){
+      for(const u of p.unidades){
+        const fila = { Torre:t.nombre, Piso:p.piso, Depto:u.depto, Medidor:u.medidor };
+        periodosOrdenados.forEach(per=>{
+          const reg = LECTURAS[unitKeyFor(per, t.id, p.piso, u.depto)];
+          let val = '';
+          if(reg){
+            const estado = reg.estado || 'leida';
+            if(estado==='leida' && reg.actual!=null && reg.anterior!=null) val = (reg.actual-reg.anterior).toFixed(2);
+            else if(estado!=='leida') val = etiquetaEstado(estado);
+          }
+          fila[per] = val;
+        });
+        filas.push(fila);
+      }
+    }
+  }
+  const ws = XLSX.utils.json_to_sheet(filas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Histórico consumo');
+  XLSX.writeFile(wb, 'Historico_consumo_JDVM.xlsx');
+  toast('Histórico consolidado exportado ✓');
+});
+
+/* =========================================================
+   USUARIOS (solo admin)
+   ========================================================= */
+function renderUsuarios(){
+  const wrap = document.getElementById('userConfigList');
+  wrap.innerHTML = USERS.map((u,i)=>`
+    <div class="cfg-list-item" data-i="${i}">
+      <input type="text" class="u-nombre" placeholder="Nombre" value="${u.nombre}">
+      <input type="text" class="u-usuario" placeholder="Usuario" value="${u.usuario}">
+      <input type="text" class="u-password" placeholder="Clave" value="${u.password}">
+      <select class="u-rol">
+        <option value="tomador" ${u.rol==='tomador'?'selected':''}>Tomador</option>
+        <option value="admin" ${u.rol==='admin'?'selected':''}>Admin</option>
+      </select>
+      <button class="icon-btn del" data-i="${i}" ${USERS.length<=1?'disabled':''}>✕</button>
+    </div>`).join('');
+  wrap.querySelectorAll('.cfg-list-item').forEach(row=>{
+    const i = row.dataset.i;
+    row.querySelector('.u-nombre').addEventListener('change', e=>{ USERS[i].nombre=e.target.value; saveUsers(); });
+    row.querySelector('.u-usuario').addEventListener('change', e=>{ USERS[i].usuario=e.target.value.trim(); saveUsers(); });
+    row.querySelector('.u-password').addEventListener('change', e=>{ USERS[i].password=e.target.value; saveUsers(); });
+    row.querySelector('.u-rol').addEventListener('change', e=>{ USERS[i].rol=e.target.value; saveUsers(); });
+  });
+  wrap.querySelectorAll('.icon-btn.del').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(USERS.length<=1) return;
+      if(!confirm('¿Eliminar este usuario? Sus lecturas ya guardadas quedarán marcadas con su nombre pero nadie podrá iniciar sesión con esa cuenta.')) return;
+      USERS.splice(btn.dataset.i,1); saveUsers(); renderUsuarios();
+    });
+  });
+}
+document.getElementById('addUsuario').addEventListener('click', ()=>{
+  USERS.push({ id:'u_'+Date.now(), nombre:'Nuevo usuario', usuario:'usuario'+(USERS.length+1), password:'1234', rol:'tomador' });
+  saveUsers(); renderUsuarios();
+});
+
+/* =========================================================
+   IMPORTAR LECTURAS DE UN MES ANTERIOR
+   ========================================================= */
+function normaliza(s){ return (s||'').toString().trim().toLowerCase(); }
+function findTorreIdByName(nombre){
+  const n = normaliza(nombre);
+  const t = CONFIG.torres.find(t=> normaliza(t.nombre)===n || normaliza(t.id)===n || normaliza(t.nombre).replace('torre','').trim()===n.replace('torre','').trim());
+  return t ? t.id : null;
+}
+function findPisoParaDepto(torreId, depto){
+  const t = CONFIG.torres.find(t=>t.id===torreId); if(!t) return null;
+  for(const p of t.pisos){ if(p.unidades.find(u=> normaliza(u.depto)===normaliza(depto))) return p.piso; }
+  return null;
+}
+document.getElementById('importFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  const periodoImport = document.getElementById('importPeriodo').value.trim();
+  const resultBox = document.getElementById('importResult');
+  if(!file) return;
+  if(!periodoImport){ resultBox.style.display='block'; resultBox.textContent='⚠ Primero escribe el nombre del periodo a importar (ej: Julio 2026).'; e.target.value=''; return; }
+  if(periodoCerrado(periodoImport)){ resultBox.style.display='block'; resultBox.textContent=`⚠ El periodo "${periodoImport}" está cerrado. Reábrelo antes de importar.`; e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = async function(ev){
+    try{
+      const data = new Uint8Array(ev.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      let importadas = 0; const noEncontradas = []; const now = new Date().toISOString();
+      const clavesImportadas = [];
+      rows.forEach(row=>{
+        const torreRaw = row.Torre ?? row.torre ?? row.TORRE ?? '';
+        const pisoRaw = row.Piso ?? row.piso ?? row.PISO ?? '';
+        const deptoRaw = (row.Depto ?? row.depto ?? row.DEPTO ?? row['Depto.'] ?? '').toString();
+        const lecturaRaw = row.Lectura ?? row.lectura ?? row.LECTURA ?? row['Lectura actual'] ?? '';
+        if(!torreRaw || !deptoRaw || lecturaRaw===''){ noEncontradas.push(`Fila incompleta: ${JSON.stringify(row)}`); return; }
+        const torreId = findTorreIdByName(torreRaw);
+        if(!torreId){ noEncontradas.push(`Torre no encontrada: "${torreRaw}" (Depto ${deptoRaw})`); return; }
+        let piso = pisoRaw !== '' ? pisoRaw.toString() : findPisoParaDepto(torreId, deptoRaw);
+        if(piso==null){ noEncontradas.push(`No se pudo ubicar el piso del Depto ${deptoRaw} en ${torreRaw}`); return; }
+        const key = unitKeyFor(periodoImport, torreId, piso, deptoRaw.toString());
+        LECTURAS[key] = { estado:'leida', actual: parseFloat(lecturaRaw), anterior: null, obs:'Importado desde archivo', tieneFoto:false, fotoUrl:null, horaGuardado: now, torre: torreId, piso: piso, importado:true, autor: currentUser.usuario, autorNombre: currentUser.nombre };
+        clavesImportadas.push(key);
+        importadas++;
+      });
+      await saveLecturas();
+      await enviarASheets(buildRowsForKeys(clavesImportadas), {silencioso:true, clavesOriginales:clavesImportadas});
+      resultBox.style.display='block';
+      resultBox.textContent = `✓ Periodo "${periodoImport}": ${importadas} lectura(s) importada(s).` + (noEncontradas.length ? `\n\n⚠ ${noEncontradas.length} fila(s) no se pudieron cruzar:\n` + noEncontradas.slice(0,15).join('\n') : '');
+      toast(`Importación: ${importadas} lecturas cargadas ✓`);
+      renderUnitList(); refreshAnomBadge();
+    }catch(err){
+      resultBox.style.display='block';
+      resultBox.textContent = '⚠ No se pudo leer el archivo. Verifica que sea un Excel o CSV válido con columnas Torre, Piso, Depto, Lectura.';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+});
+
+/* =========================================================
+   CONFIGURACIÓN: TORRES / PISOS / UNIDADES
+   ========================================================= */
+function renderConfig(){
+  renderUsuarios();
+  renderPeriodos();
+  const torreList = document.getElementById('torreList');
+  torreList.innerHTML = CONFIG.torres.map((t,i)=>`
+    <div class="cfg-list-item">
+      <input type="text" data-idx="${i}" class="torre-nombre" value="${t.nombre}">
+      <button class="icon-btn del" data-idx="${i}" title="Eliminar torre">✕</button>
+    </div>`).join('');
+  torreList.querySelectorAll('.torre-nombre').forEach(inp=>{
+    inp.addEventListener('change', e=>{ CONFIG.torres[e.target.dataset.idx].nombre = e.target.value; saveConfig(); populateTorreSelect(); });
+  });
+  torreList.querySelectorAll('.icon-btn.del').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!confirm('¿Eliminar esta torre y todas sus unidades configuradas?')) return;
+      CONFIG.torres.splice(btn.dataset.idx,1); saveConfig(); renderConfig(); populateTorreSelect();
+    });
+  });
+  const selTC = document.getElementById('selTorreConfig');
+  selTC.innerHTML = CONFIG.torres.map(t=>`<option value="${t.id}">${t.nombre}</option>`).join('');
+  if(!currentTorre) currentTorre = CONFIG.torres[0]?.id;
+  selTC.value = currentTorre;
+  document.getElementById('torreConfigNombre').textContent = (CONFIG.torres.find(t=>t.id===currentTorre)||{}).nombre||'';
+  renderPisoConfig();
+}
+document.getElementById('selTorreConfig').addEventListener('change', e=>{
+  currentTorre = e.target.value;
+  document.getElementById('torreConfigNombre').textContent = (CONFIG.torres.find(t=>t.id===currentTorre)||{}).nombre||'';
+  renderPisoConfig();
+});
+document.getElementById('addTorre').addEventListener('click', ()=>{
+  const letra = String.fromCharCode(65 + CONFIG.torres.length);
+  CONFIG.torres.push({id:'T'+Date.now(), nombre:'Torre '+letra, pisos:[]});
+  saveConfig(); renderConfig(); populateTorreSelect();
+});
+function renderPisoConfig(){
+  const torre = CONFIG.torres.find(t=>t.id===currentTorre);
+  const wrap = document.getElementById('pisoConfigList');
+  if(!torre){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = torre.pisos.map((p,pi)=>`
+    <div class="piso-block" data-pi="${pi}">
+      <div class="piso-block-head"><b>Piso ${p.piso}</b><button class="icon-btn del" data-pi="${pi}" data-action="delpiso">✕</button></div>
+      ${p.unidades.map((u,ui)=>`
+        <div class="cfg-list-item">
+          <input type="text" placeholder="Depto" value="${u.depto}" data-pi="${pi}" data-ui="${ui}" data-field="depto" style="max-width:90px;">
+          <input type="text" placeholder="N° medidor" value="${u.medidor}" data-pi="${pi}" data-ui="${ui}" data-field="medidor">
+          <button class="icon-btn del" data-pi="${pi}" data-ui="${ui}" data-action="delunidad">✕</button>
+        </div>`).join('')}
+      <button class="add-btn" data-pi="${pi}" data-action="addunidad" style="padding:7px;font-size:.78rem;">+ Unidad</button>
+    </div>`).join('');
+  wrap.querySelectorAll('input[data-field]').forEach(inp=>{
+    inp.addEventListener('change', e=>{ const {pi, ui, field} = e.target.dataset; torre.pisos[pi].unidades[ui][field] = e.target.value; saveConfig(); });
+  });
+  wrap.querySelectorAll('[data-action=addunidad]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ torre.pisos[btn.dataset.pi].unidades.push({depto:'', medidor:''}); saveConfig(); renderPisoConfig(); });
+  });
+  wrap.querySelectorAll('[data-action=delunidad]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ torre.pisos[btn.dataset.pi].unidades.splice(btn.dataset.ui,1); saveConfig(); renderPisoConfig(); });
+  });
+  wrap.querySelectorAll('[data-action=delpiso]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ if(!confirm('¿Eliminar este piso y sus unidades?')) return; torre.pisos.splice(btn.dataset.pi,1); saveConfig(); renderPisoConfig(); populatePisoSelect(); });
+  });
+}
+document.getElementById('addPiso').addEventListener('click', ()=>{
+  const torre = CONFIG.torres.find(t=>t.id===currentTorre); if(!torre) return;
+  const nextPiso = torre.pisos.length ? Math.max(...torre.pisos.map(p=>p.piso))+1 : 1;
+  torre.pisos.push({piso: nextPiso, unidades:[{depto:'', medidor:''}]});
+  saveConfig(); renderPisoConfig(); populatePisoSelect();
+});
+document.getElementById('emailDestino').addEventListener('change', saveEmailDest);
+
+/* =========================================================
+   SINCRONIZACIÓN CON GOOGLE SHEETS
+   ========================================================= */
+document.getElementById('sheetsUrl').addEventListener('change', async (e)=>{
+  SHEETS_URL = e.target.value.trim();
+  try{ await window.storage.set('jdvm_sheets_url', SHEETS_URL); }catch(err){}
+});
+
+function filaParaSheets(t, p, u, reg){
+  const estado = reg.estado || 'leida';
+  const consumo = (estado==='leida' && reg.actual!=null && reg.anterior!=null) ? (reg.actual-reg.anterior) : '';
+  const anom = estado==='leida' ? detectarAnomalia(reg.anterior, reg.actual, t.id, u.depto) : null;
+  return {
+    Periodo: t.__periodo, Torre: t.nombre, Piso: p, Depto: u.depto, Medidor: u.medidor,
+    Estado: etiquetaEstado(estado),
+    'Lectura anterior': reg.anterior ?? '', 'Lectura actual': reg.actual ?? '',
+    'Consumo (m³)': consumo, 'Anomalía': anom ? anom.motivo : '',
+    Observaciones: reg.obs || '', 'Foto': reg.fotoUrl || (reg.tieneFoto ? 'Pendiente de subir' : 'No'),
+    'Registrado por': reg.autorNombre || reg.autor || '',
+    'Fecha registro': reg.horaGuardado ? new Date(reg.horaGuardado).toLocaleString('es-CL') : ''
+  };
+}
+function buildRowsForKeys(keys){
+  const rows = [];
+  keys.forEach(key=>{
+    const reg = LECTURAS[key];
+    if(!reg) return;
+    const [per, torreId, piso, depto] = key.split('|');
+    const t = CONFIG.torres.find(t=>t.id===torreId);
+    if(!t) return;
+    const pisoObj = t.pisos.find(p=>p.piso==piso);
+    const u = pisoObj ? pisoObj.unidades.find(u=>u.depto===depto) : null;
+    rows.push(filaParaSheets({...t, __periodo:per}, piso, u || {depto, medidor:''}, reg));
+  });
+  return rows;
+}
+function buildAllRowsAllPeriods(){ return buildRowsForKeys(Object.keys(LECTURAS)); }
+
+function updateSyncStatus(isoOrMsg, ok){
+  const box = document.getElementById('syncStatus');
+  if(!box) return;
+  if(ok===false){
+    box.textContent = `⚠ No se pudo sincronizar (sin conexión o URL inválida). Datos guardados en el celular — ${new Date().toLocaleString('es-CL')}`;
+    return;
+  }
+  const fecha = isoOrMsg ? new Date(isoOrMsg).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
+  box.textContent = `✓ Última sincronización con Sheets: ${fecha}`;
+}
+
+async function enviarASheets(rows, {silencioso=false, boton=null, clavesOriginales=null}={}){
+  if(!SHEETS_URL){ if(!silencioso) toast('Configura primero la URL de Google Sheets en Configuración'); return; }
+  if(rows.length===0) return;
+  if(boton){ boton.disabled = true; boton.textContent = '🔄 Sincronizando…'; }
+  try{
+    const resp = await fetch(SHEETS_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:'lecturas', rows })
+    });
+    const data = await resp.json().catch(()=>({ok:true}));
+    if(data.ok===false) throw new Error(data.error||'Error desconocido');
+    const now = new Date().toISOString();
+    try{ await window.storage.set('jdvm_last_sync', now); }catch(e){}
+    updateSyncStatus(now);
+    if(clavesOriginales){ COLA_PENDIENTE = COLA_PENDIENTE.filter(k=>!clavesOriginales.includes(k)); await saveCola(); }
+    refreshConnUI();
+    if(!silencioso) toast(`Sincronizado con Sheets ✓ (${rows.length} filas)`);
+  }catch(err){
+    updateSyncStatus(null, false);
+    if(clavesOriginales){
+      clavesOriginales.forEach(k=>{ if(!COLA_PENDIENTE.includes(k)) COLA_PENDIENTE.push(k); });
+      await saveCola();
+    }
+    refreshConnUI();
+    if(!silencioso) toast('⚠ No se pudo sincronizar con Sheets. Verifica tu conexión o la URL.');
+  }finally{
+    if(boton){ boton.disabled = false; boton.textContent = '🔄 Sincronizar todo ahora'; }
+  }
+}
+document.getElementById('btnSyncAll').addEventListener('click', (e)=>{ enviarASheets(buildAllRowsAllPeriods(), {boton:e.target}); });
+
+/* =========================================================
+   EXPORTAR EXCEL DEL PERIODO ACTUAL
+   ========================================================= */
+function buildDataRows(){
+  const rows = [];
+  for(const t of CONFIG.torres){
+    for(const p of t.pisos){
+      for(const u of p.unidades){
+        const key = unitKey(t.id, p.piso, u.depto);
+        const reg = LECTURAS[key];
+        if(!reg) continue;
+        if(reg.actual==null && reg.anterior==null && !reg.obs && (reg.estado||'leida')==='leida') continue;
+        rows.push(filaParaSheets({...t, __periodo:periodo()}, p.piso, u, reg));
+      }
+    }
+  }
+  return rows;
+}
+document.getElementById('btnXlsx').addEventListener('click', ()=>{
+  const rows = buildDataRows();
+  if(rows.length===0){ toast('No hay lecturas guardadas para exportar'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:12},{wch:12},{wch:6},{wch:8},{wch:12},{wch:14},{wch:14},{wch:14},{wch:12},{wch:30},{wch:28},{wch:22},{wch:16},{wch:18}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Lecturas');
+  XLSX.writeFile(wb, `Lecturas_JDVM_${periodo().replace(/\s+/g,'_')}.xlsx`);
+  toast('Excel descargado ✓');
+});
+
+/* =========================================================
+   PDF / IMPRIMIR
+   ========================================================= */
+document.getElementById('btnPdf').addEventListener('click', ()=>{ window.print(); });
+
+/* =========================================================
+   ENVIAR POR CORREO
+   ========================================================= */
+document.getElementById('btnMail').addEventListener('click', ()=>{
+  const dest = document.getElementById('emailDestino').value.trim();
+  const rows = buildDataRows();
+  if(rows.length===0){ toast('No hay lecturas guardadas para enviar'); return; }
+  let body = `Lecturas de medidores - Comunidad JDVM\nPeriodo: ${periodo()}\n\n`;
+  rows.forEach(r=>{ body += `${r.Torre} · Piso ${r.Piso} · Depto ${r.Depto} (${r.Medidor}) [${r.Estado}]: anterior ${r['Lectura anterior']} → actual ${r['Lectura actual']} = ${r['Consumo (m³)']} m³${r['Anomalía']?' ⚠ '+r['Anomalía']:''} — reg. ${r['Registrado por']}\n`; });
+  body += `\n---\nEste correo se generó desde la app de Lecturas JDVM. Adjunta manualmente el archivo Excel exportado si lo necesitas, ya que el navegador no permite adjuntarlo automáticamente.`;
+  const url = `mailto:${encodeURIComponent(dest)}?subject=${encodeURIComponent('Lecturas de medidores JDVM - '+periodo())}&body=${encodeURIComponent(body)}`;
+  window.location.href = url;
+  toast('Abriendo tu app de correo…');
+});
+
+/* =========================================================
+   INIT
+   ========================================================= */
+(async function init(){
+  await loadState();
+  const restaurada = await tryRestoreSession();
+  if(restaurada) enterApp();
+  refreshConnUI();
+})();
+</script>
+</body>
+</html>
