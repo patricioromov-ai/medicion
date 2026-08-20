@@ -1453,6 +1453,22 @@ document.getElementById('btnMail').addEventListener('click', ()=>{
 });
 
 /* =========================================================
+   LIMPIEZA DEFENSIVA DE AUTOCOMPLETADO DEL NAVEGADOR
+   La app nunca escribe valores en estos campos al cargar; si aparece algo
+   es autocompletado del navegador (credencial guardada). Se limpia solo,
+   salvo que el propio usuario ya haya empezado a escribir.
+   ========================================================= */
+let usuarioEscribiendo = false, passwordEscribiendo = false;
+document.getElementById('loginUsuario').addEventListener('input', ()=> usuarioEscribiendo = true);
+document.getElementById('loginPassword').addEventListener('input', ()=> passwordEscribiendo = true);
+function limpiarAutocompletadoLogin(){
+  const u = document.getElementById('loginUsuario'), p = document.getElementById('loginPassword');
+  if(!usuarioEscribiendo && u.value) u.value = '';
+  if(!passwordEscribiendo && p.value) p.value = '';
+}
+[100, 400, 900, 1500].forEach(ms=> setTimeout(limpiarAutocompletadoLogin, ms));
+
+/* =========================================================
    INIT
    ========================================================= */
 (async function init(){
