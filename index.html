@@ -200,7 +200,7 @@
     <input type="password" id="loginPassword" name="jdvm_pass_field" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="••••••">
     <div class="login-error" id="loginError">Usuario o contraseña incorrectos.</div>
     <button id="btnLogin">Ingresar</button>
-    <div class="login-note">Usuario inicial: <b>admin</b> / <b>admin123</b>. Cámbialo y crea usuarios de "Tomador de registro" desde Configuración → Usuarios una vez dentro.</div>
+    <div class="login-note">Usuario inicial: <b>admin</b> / <b>admin123</b>. Cámbialo y crea usuarios de "Tomador de registro" desde Configuración → Usuarios una vez dentro. Debes iniciar sesión cada vez que abras la app (no queda la sesión guardada en el celular).</div>
   </div>
 </div>
 
@@ -325,12 +325,11 @@
     </div>
 
     <div class="cfg-section">
-      <h3>Respaldo en Google Sheets + fotos en Drive</h3>
-      <p class="hint">Cada lectura, foto o importación se envía sola a la hoja/carpeta configurada. Sin conexión, los datos quedan guardados en el celular y se reintentan solos o con el botón de abajo.</p>
-      <div id="sheetsUrlStatus" style="font-size:.82rem;margin-bottom:8px;"></div>
-      <input type="text" id="sheetsUrl" name="jdvm_backup_field_no_autofill" autocomplete="off" data-lpignore="true" data-1p-ignore readonly onfocus="this.removeAttribute('readonly')" style="display:none;margin-bottom:10px;-webkit-text-security:disc;text-security:disc;" placeholder="https://script.google.com/macros/s/XXXX/exec">
-      <button class="add-btn" id="btnEditarUrl" style="margin-top:0;">✏️ Cambiar URL de respaldo</button>
-      <button class="add-btn" id="btnSyncAll">🔄 Sincronizar todo ahora</button>
+      <h3>Base de datos (Google Sheets + fotos en Drive)</h3>
+      <p class="hint">Esta app no guarda nada en el celular: todo — usuarios, torres, umbrales y lecturas — vive en tu Google Sheet. Cada cambio se escribe ahí al instante, y al abrir la app se carga todo desde ahí.</p>
+      <div id="sheetsUrlStatus" style="font-size:.82rem;margin-bottom:10px;">Verificando conexión…</div>
+      <button class="add-btn" id="btnSyncAll">🔄 Reenviar todas las lecturas locales</button>
+      <button class="add-btn" id="btnRecargar">⬇️ Recargar todo desde Sheets</button>
       <div class="import-result" id="syncStatus" style="display:block;margin-top:10px;">Sin sincronizar todavía.</div>
     </div>
   </section>
@@ -372,65 +371,136 @@ const ESTADOS = {
 
 let CONFIG = null, USERS = [], LECTURAS = {};
 let UMBRALES = { min:1, max:60, desvio:50 };
-let SHEETS_URL = '';
+const SHEETS_URL = DEFAULT_SHEETS_URL;
 let PERIODOS_CERRADOS = [];
 let COLA_PENDIENTE = [];
 let currentUser = null;
 let currentTorre = null, currentPiso = null, currentUnitKeyForFoto = null;
+let estadoServidorOk = false;
+
+async function apiCall(action, extra={}){
+  const resp = await fetch(SHEETS_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'}, // evita preflight con Apps Script
+    body: JSON.stringify({ action, ...extra })
+  });
+  return await resp.json();
+}
 
 async function loadState(){
-  try{ const r = await window.storage.get('jdvm_config'); CONFIG = r ? JSON.parse(r.value) : DEFAULT_CONFIG; } catch(e){ CONFIG = DEFAULT_CONFIG; }
-  try{ const r2 = await window.storage.get('jdvm_lecturas'); LECTURAS = r2 ? JSON.parse(r2.value) : {}; } catch(e){ LECTURAS = {}; }
-  try{ const r3 = await window.storage.get('jdvm_email_dest'); document.getElementById('emailDestino').value = r3 ? r3.value : ''; } catch(e){}
-  try{ const r4 = await window.storage.get('jdvm_umbrales'); UMBRALES = r4 ? JSON.parse(r4.value) : {min:1,max:60,desvio:50}; } catch(e){ UMBRALES = {min:1,max:60,desvio:50}; }
-  try{ const r5 = await window.storage.get('jdvm_usuarios'); USERS = r5 ? JSON.parse(r5.value) : DEFAULT_USERS; } catch(e){ USERS = DEFAULT_USERS; }
-  try{ const r6 = await window.storage.get('jdvm_sheets_url'); SHEETS_URL = r6 ? r6.value : ''; } catch(e){ SHEETS_URL = ''; }
-  if(!SHEETS_URL){
-    SHEETS_URL = DEFAULT_SHEETS_URL;
-    try{ await window.storage.set('jdvm_sheets_url', SHEETS_URL); }catch(e){}
+  document.getElementById('emailDestino').value = '';
+  try{
+    const est = await apiCall('estado_get');
+    if(est.ok && est.estado){
+      CONFIG = est.estado.config || DEFAULT_CONFIG;
+      USERS = (est.estado.users && est.estado.users.length) ? est.estado.users : DEFAULT_USERS;
+      UMBRALES = est.estado.umbrales || {min:1,max:60,desvio:50};
+      PERIODOS_CERRADOS = est.estado.periodosCerrados || [];
+      document.getElementById('emailDestino').value = est.estado.emailDestino || '';
+    } else {
+      // primera vez que se usa esta hoja: sembrar con los valores por defecto
+      CONFIG = DEFAULT_CONFIG; USERS = DEFAULT_USERS; UMBRALES = {min:1,max:60,desvio:50}; PERIODOS_CERRADOS = [];
+      await saveEstado();
+    }
+    estadoServidorOk = true;
+  }catch(e){
+    console.error('No se pudo cargar el estado desde Sheets:', e);
+    CONFIG = DEFAULT_CONFIG; USERS = DEFAULT_USERS; UMBRALES = {min:1,max:60,desvio:50}; PERIODOS_CERRADOS = [];
+    estadoServidorOk = false;
   }
-  try{ const r7 = await window.storage.get('jdvm_last_sync'); if(r7) updateSyncStatus(r7.value); } catch(e){}
-  try{ const r8 = await window.storage.get('jdvm_periodos_cerrados'); PERIODOS_CERRADOS = r8 ? JSON.parse(r8.value) : []; } catch(e){ PERIODOS_CERRADOS = []; }
-  try{ const r9 = await window.storage.get('jdvm_cola_pendiente'); COLA_PENDIENTE = r9 ? JSON.parse(r9.value) : []; } catch(e){ COLA_PENDIENTE = []; }
+
+  try{
+    const lec = await apiCall('lecturas_get');
+    LECTURAS = (lec.ok && lec.rows) ? reconstruirLecturasDesdeFilas(lec.rows) : {};
+  }catch(e){
+    console.error('No se pudieron cargar las lecturas desde Sheets:', e);
+    LECTURAS = {};
+  }
+
   document.getElementById('umbralMin').value = UMBRALES.min;
   document.getElementById('umbralMax').value = UMBRALES.max;
   document.getElementById('umbralDesvio').value = UMBRALES.desvio!=null ? UMBRALES.desvio : 50;
-  actualizarEstadoUrlSheets();
+  actualizarEstadoConexionBD();
 }
-async function saveConfig(){ try{ await window.storage.set('jdvm_config', JSON.stringify(CONFIG)); }catch(e){} }
-async function saveLecturas(){ try{ await window.storage.set('jdvm_lecturas', JSON.stringify(LECTURAS)); }catch(e){} }
-async function saveEmailDest(){ try{ await window.storage.set('jdvm_email_dest', document.getElementById('emailDestino').value); }catch(e){} }
-async function saveUsers(){ try{ await window.storage.set('jdvm_usuarios', JSON.stringify(USERS)); }catch(e){} }
-async function savePeriodosCerrados(){ try{ await window.storage.set('jdvm_periodos_cerrados', JSON.stringify(PERIODOS_CERRADOS)); }catch(e){} }
-async function saveCola(){ try{ await window.storage.set('jdvm_cola_pendiente', JSON.stringify(COLA_PENDIENTE)); }catch(e){} }
+
+function actualizarEstadoConexionBD(){
+  const box = document.getElementById('sheetsUrlStatus');
+  if(!box) return;
+  box.textContent = estadoServidorOk ? '🟢 Conectado a Google Sheets.' : '🔴 Sin conexión con la base de datos — revisa tu internet. Mientras tanto, la app funciona con datos por defecto y nada quedará guardado.';
+}
+
+function avisarErrorGuardado(err){
+  console.error('Error de guardado:', err);
+  toast('⚠ No se pudo guardar en Sheets. Revisa tu conexión — el cambio se reintentará, pero no cierres la app hasta confirmar.', 5000);
+}
+
+/** Guarda TODO el estado (config, usuarios, umbrales, periodos, correo) como un solo bloque en la hoja "AppState". */
+async function saveEstado(){
+  try{
+    const r = await apiCall('estado_set', { estado: {
+      config: CONFIG, users: USERS, umbrales: UMBRALES, periodosCerrados: PERIODOS_CERRADOS,
+      emailDestino: document.getElementById('emailDestino').value
+    }});
+    if(!r.ok) throw new Error(r.error||'estado_set falló');
+    estadoServidorOk = true;
+  }catch(e){ estadoServidorOk = false; avisarErrorGuardado(e); }
+  actualizarEstadoConexionBD();
+}
+async function saveConfig(){ await saveEstado(); }
+async function saveUsers(){ await saveEstado(); }
+async function saveEmailDest(){ await saveEstado(); }
+async function savePeriodosCerrados(){ await saveEstado(); }
 async function saveUmbrales(){
   UMBRALES.min = parseFloat(document.getElementById('umbralMin').value) || 0;
   UMBRALES.max = parseFloat(document.getElementById('umbralMax').value) || 999999;
   UMBRALES.desvio = parseFloat(document.getElementById('umbralDesvio').value) || 0;
-  try{ await window.storage.set('jdvm_umbrales', JSON.stringify(UMBRALES)); }catch(e){}
+  await saveEstado();
   renderUnitList(); renderAnomalias();
 }
+/** LECTURAS ya no se guarda como bloque: cada registro se sincroniza por fila
+    directamente a la hoja "Lecturas" vía enviarASheets(). Esta función queda
+    solo por compatibilidad con el resto del código. */
+async function saveLecturas(){ /* no-op: la hoja "Lecturas" es la fuente de verdad */ }
+async function saveCola(){ /* la cola pendiente vive solo en memoria mientras la pestaña esté abierta */ }
 
 function periodo(){ return document.getElementById('periodoInput').value.trim() || 'Sin periodo'; }
 function unitKey(torreId, piso, depto){ return `${periodo()}|${torreId}|${piso}|${depto}`; }
 function unitKeyFor(per, torreId, piso, depto){ return `${per}|${torreId}|${piso}|${depto}`; }
+
+function reconstruirLecturasDesdeFilas(rows){
+  const out = {};
+  rows.forEach(row=>{
+    const torreId = findTorreIdByName(row['Torre']);
+    if(!torreId || !row['Periodo'] || !row['Depto']) return;
+    const piso = String(row['Piso']);
+    const depto = String(row['Depto']);
+    const key = unitKeyFor(row['Periodo'], torreId, piso, depto);
+    const estadoLabel = row['Estado'];
+    const estadoKey = Object.keys(ESTADOS).find(k=>ESTADOS[k].label===estadoLabel) || 'leida';
+    const fotoRaw = row['Foto'];
+    const esUrl = fotoRaw && /^https?:\/\//.test(fotoRaw);
+    out[key] = {
+      estado: estadoKey,
+      actual: (row['Lectura actual']!==''&&row['Lectura actual']!=null) ? parseFloat(row['Lectura actual']) : null,
+      anterior: (row['Lectura anterior']!==''&&row['Lectura anterior']!=null) ? parseFloat(row['Lectura anterior']) : null,
+      obs: row['Observaciones'] || '',
+      tieneFoto: !!esUrl || fotoRaw==='Pendiente de subir',
+      fotoUrl: esUrl ? fotoRaw : null,
+      horaGuardado: row['Fecha registro'] || '',
+      torre: torreId, piso: piso,
+      autor: row['Autor (usuario)'] || '',
+      autorNombre: row['Registrado por'] || '',
+      revisada: row['Revisada'] === 'Sí'
+    };
+  });
+  return out;
+}
 function toast(msg, ms=2200){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),ms); }
 function etiquetaEstado(estado){ return (ESTADOS[estado]||ESTADOS.leida).label; }
 
 /* =========================================================
    LOGIN / SESIÓN / PERMISOS
    ========================================================= */
-async function tryRestoreSession(){
-  try{
-    const r = await window.storage.get('jdvm_sesion_actual');
-    if(!r) return false;
-    const sess = JSON.parse(r.value);
-    const u = USERS.find(u=>u.usuario===sess.usuario);
-    if(!u) return false;
-    currentUser = { usuario:u.usuario, nombre:u.nombre, rol:u.rol };
-    return true;
-  }catch(e){ return false; }
-}
 document.getElementById('btnLogin').addEventListener('click', doLogin);
 document.getElementById('loginPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 async function doLogin(){
@@ -441,12 +511,10 @@ async function doLogin(){
   if(!u){ errBox.style.display='block'; return; }
   errBox.style.display='none';
   currentUser = { usuario:u.usuario, nombre:u.nombre, rol:u.rol };
-  try{ await window.storage.set('jdvm_sesion_actual', JSON.stringify({usuario:u.usuario})); }catch(e){}
   document.getElementById('loginUsuario').value=''; document.getElementById('loginPassword').value='';
   enterApp();
 }
-document.getElementById('btnLogout').addEventListener('click', async ()=>{
-  try{ await window.storage.delete('jdvm_sesion_actual'); }catch(e){}
+document.getElementById('btnLogout').addEventListener('click', ()=>{
   currentUser = null;
   document.getElementById('loginOverlay').style.display='flex';
 });
@@ -819,7 +887,7 @@ function attachUnitEvents(){
 }
 
 /* =========================================================
-   FOTO: captura local + subida a Drive
+   FOTO: captura + subida directa a Drive (no hay almacenamiento local)
    ========================================================= */
 document.getElementById('fotoInput').addEventListener('change', async (e)=>{
   const file = e.target.files[0];
@@ -830,9 +898,8 @@ document.getElementById('fotoInput').addEventListener('change', async (e)=>{
     const base64 = ev.target.result;
     if(!LECTURAS[key]) LECTURAS[key] = {};
     LECTURAS[key].tieneFoto = true;
-    await saveLecturas();
-    toast('Foto guardada en el celular ✓ subiendo a Drive…');
     renderUnitList();
+    toast('Subiendo foto a Drive…');
     subirFotoADrive(key, base64);
   };
   reader.readAsDataURL(file);
@@ -840,24 +907,19 @@ document.getElementById('fotoInput').addEventListener('change', async (e)=>{
 });
 
 async function subirFotoADrive(key, base64){
-  if(!SHEETS_URL){ toast('⚠ Configura la URL de Sheets/Drive para respaldar fotos'); return; }
   try{
-    const resp = await fetch(SHEETS_URL, {
-      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ action:'foto', base64, filename: key.replace(/[^a-zA-Z0-9_-]/g,'_') })
-    });
-    const data = await resp.json().catch(()=>({ok:false}));
+    const data = await apiCall('foto', { base64, filename: key.replace(/[^a-zA-Z0-9_-]/g,'_') });
     if(data.ok && data.fileUrl){
-      if(LECTURAS[key]){ LECTURAS[key].fotoUrl = data.fileUrl; await saveLecturas(); }
+      if(LECTURAS[key]) LECTURAS[key].fotoUrl = data.fileUrl;
       toast('Foto respaldada en Drive ✓');
       renderUnitList();
       // reenviar la fila para que la hoja quede con el link de la foto
       enviarASheets(buildRowsForKeys([key]), {silencioso:true});
     } else {
-      toast('⚠ No se pudo subir la foto a Drive (quedó guardada en el celular)');
+      toast('⚠ No se pudo subir la foto a Drive. Vuelve a tocar "Tomar foto" para reintentar antes de salir de la app.', 4500);
     }
   }catch(err){
-    toast('⚠ Sin conexión: la foto quedó guardada en el celular, se reintentará al sincronizar');
+    toast('⚠ Sin conexión al subir la foto. No cierres la app: vuelve a intentarlo cuando tengas señal, o se perderá.', 4500);
   }
 }
 
@@ -1269,27 +1331,6 @@ document.getElementById('emailDestino').addEventListener('change', saveEmailDest
 /* =========================================================
    SINCRONIZACIÓN CON GOOGLE SHEETS
    ========================================================= */
-function actualizarEstadoUrlSheets(){
-  const box = document.getElementById('sheetsUrlStatus');
-  if(!box) return;
-  box.textContent = SHEETS_URL ? '🔒 Respaldo configurado (URL oculta).' : '⚠ Respaldo no configurado.';
-}
-document.getElementById('btnEditarUrl').addEventListener('click', ()=>{
-  const input = document.getElementById('sheetsUrl');
-  const abrir = input.style.display==='none';
-  input.style.display = abrir ? 'block' : 'none';
-  if(abrir){ input.value = ''; input.placeholder = SHEETS_URL ? 'Dejar en blanco para mantener la actual' : 'https://script.google.com/macros/s/XXXX/exec'; input.focus(); }
-});
-document.getElementById('sheetsUrl').addEventListener('change', async (e)=>{
-  const val = e.target.value.trim();
-  if(!val) return; // en blanco = no se cambia
-  SHEETS_URL = val;
-  try{ await window.storage.set('jdvm_sheets_url', SHEETS_URL); }catch(err){}
-  e.target.style.display='none'; e.target.value='';
-  actualizarEstadoUrlSheets();
-  toast('URL de respaldo actualizada ✓');
-});
-
 function pad2(n){ return String(n).padStart(2,'0'); }
 function formatFechaHora(iso){
   if(!iso) return '';
@@ -1312,6 +1353,15 @@ function filaParaSheets(t, p, u, reg){
     'Fecha registro': formatFechaHora(reg.horaGuardado)
   };
 }
+/** Igual que filaParaSheets, pero agrega columnas internas de control que la app
+    necesita para reconstruir LECTURAS al recargar (permisos por autor, revisadas). */
+function filaParaSync(t, p, u, reg){
+  return {
+    ...filaParaSheets(t, p, u, reg),
+    'Autor (usuario)': reg.autor || '',
+    'Revisada': reg.revisada ? 'Sí' : 'No'
+  };
+}
 function buildRowsForKeys(keys){
   const rows = [];
   keys.forEach(key=>{
@@ -1322,7 +1372,7 @@ function buildRowsForKeys(keys){
     if(!t) return;
     const pisoObj = t.pisos.find(p=>p.piso==piso);
     const u = pisoObj ? pisoObj.unidades.find(u=>u.depto===depto) : null;
-    rows.push(filaParaSheets({...t, __periodo:per}, piso, u || {depto, medidor:''}, reg));
+    rows.push(filaParaSync({...t, __periodo:per}, piso, u || {depto, medidor:''}, reg));
   });
   return rows;
 }
@@ -1332,7 +1382,7 @@ function updateSyncStatus(isoOrMsg, ok){
   const box = document.getElementById('syncStatus');
   if(!box) return;
   if(ok===false){
-    box.textContent = `⚠ No se pudo sincronizar (sin conexión o URL inválida). Datos guardados en el celular — ${formatFechaHora(new Date().toISOString())}`;
+    box.textContent = `⚠ No se pudo sincronizar con Sheets — ${formatFechaHora(new Date().toISOString())}. Reintenta cuando tengas señal.`;
     return;
   }
   const fecha = formatFechaHora(isoOrMsg || new Date().toISOString());
@@ -1340,35 +1390,34 @@ function updateSyncStatus(isoOrMsg, ok){
 }
 
 async function enviarASheets(rows, {silencioso=false, boton=null, clavesOriginales=null}={}){
-  if(!SHEETS_URL){ if(!silencioso) toast('Configura primero la URL de Google Sheets en Configuración'); return; }
   if(rows.length===0) return;
   if(boton){ boton.disabled = true; boton.textContent = '🔄 Sincronizando…'; }
   try{
-    const resp = await fetch(SHEETS_URL, {
-      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ action:'lecturas', rows })
-    });
-    const data = await resp.json().catch(()=>({ok:true}));
+    const data = await apiCall('lecturas_set', { rows });
     if(data.ok===false) throw new Error(data.error||'Error desconocido');
-    const now = new Date().toISOString();
-    try{ await window.storage.set('jdvm_last_sync', now); }catch(e){}
-    updateSyncStatus(now);
-    if(clavesOriginales){ COLA_PENDIENTE = COLA_PENDIENTE.filter(k=>!clavesOriginales.includes(k)); await saveCola(); }
+    updateSyncStatus(new Date().toISOString());
+    estadoServidorOk = true; actualizarEstadoConexionBD();
+    if(clavesOriginales) COLA_PENDIENTE = COLA_PENDIENTE.filter(k=>!clavesOriginales.includes(k));
     refreshConnUI();
     if(!silencioso) toast(`Sincronizado con Sheets ✓ (${rows.length} filas)`);
   }catch(err){
     updateSyncStatus(null, false);
-    if(clavesOriginales){
-      clavesOriginales.forEach(k=>{ if(!COLA_PENDIENTE.includes(k)) COLA_PENDIENTE.push(k); });
-      await saveCola();
-    }
+    estadoServidorOk = false; actualizarEstadoConexionBD();
+    if(clavesOriginales) clavesOriginales.forEach(k=>{ if(!COLA_PENDIENTE.includes(k)) COLA_PENDIENTE.push(k); });
     refreshConnUI();
-    if(!silencioso) toast('⚠ No se pudo sincronizar con Sheets. Verifica tu conexión o la URL.');
+    if(!silencioso) toast('⚠ No se pudo sincronizar con Sheets. Se reintentará — no cierres la app hasta ver la confirmación.');
   }finally{
-    if(boton){ boton.disabled = false; boton.textContent = '🔄 Sincronizar todo ahora'; }
+    if(boton){ boton.disabled = false; boton.textContent = '🔄 Reenviar todas las lecturas locales'; }
   }
 }
 document.getElementById('btnSyncAll').addEventListener('click', (e)=>{ enviarASheets(buildAllRowsAllPeriods(), {boton:e.target}); });
+document.getElementById('btnRecargar').addEventListener('click', async ()=>{
+  toast('Recargando desde Sheets…');
+  await loadState();
+  populateTorreSelect();
+  renderUnitList(); refreshAnomBadge();
+  toast('✓ Datos recargados desde Sheets');
+});
 
 /* =========================================================
    EXPORTAR EXCEL DEL PERIODO ACTUAL
@@ -1473,8 +1522,6 @@ function limpiarAutocompletadoLogin(){
    ========================================================= */
 (async function init(){
   await loadState();
-  const restaurada = await tryRestoreSession();
-  if(restaurada) enterApp();
   refreshConnUI();
 })();
 </script>
