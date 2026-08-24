@@ -201,6 +201,7 @@
     <div class="login-error" id="loginError">Usuario o contraseña incorrectos.</div>
     <button id="btnLogin">Ingresar</button>
     <div class="login-note">Usuario inicial: <b>admin</b> / <b>admin123</b>. Cámbialo y crea usuarios de "Tomador de registro" desde Configuración → Usuarios una vez dentro. Debes iniciar sesión cada vez que abras la app (no queda la sesión guardada en el celular).</div>
+    <div style="text-align:center;font-size:.66rem;color:#a8b5b3;margin-top:10px;">App <span id="loginAppVersion"></span></div>
   </div>
 </div>
 
@@ -296,6 +297,14 @@
     </div>
 
     <div class="cfg-section">
+      <h3>Importar estructura completa (torres/pisos/unidades)</h3>
+      <p class="hint">Sube un Excel con columnas <b>Torre, Piso, Depto, Medidor</b> — una fila por unidad. Úsalo para cargar de una vez toda la comunidad en lugar de crear cada torre y piso a mano. <b>⚠ Esto reemplaza por completo</b> las torres/pisos/unidades actuales (no toca las lecturas ya guardadas, pero si borras una unidad que ya tenía lecturas, esas lecturas quedan "huérfanas" y no se mostrarán hasta que la unidad exista de nuevo).</p>
+      <label class="file-btn" for="importEstructuraFile">📥 Elegir archivo y reemplazar estructura</label>
+      <input type="file" id="importEstructuraFile" accept=".xlsx,.xls,.csv">
+      <div class="import-result" id="importEstructuraResult" style="display:none;"></div>
+    </div>
+
+    <div class="cfg-section">
       <h3>Importar lecturas de un mes anterior</h3>
       <p class="hint">Sube un Excel (.xlsx/.csv) con columnas <b>Torre, Piso, Depto, Lectura</b> (Piso es opcional si el Depto ya existe en la configuración).</p>
       <label style="font-size:.75rem;color:var(--muted);">Nombre del periodo a importar</label>
@@ -332,6 +341,10 @@
       <button class="add-btn" id="btnRecargar">⬇️ Recargar todo desde Sheets</button>
       <div class="import-result" id="syncStatus" style="display:block;margin-top:10px;">Sin sincronizar todavía.</div>
     </div>
+
+    <div style="text-align:center;font-size:.7rem;color:var(--muted);padding:6px 0 20px;">
+      App: <span id="cfgAppVersion"></span> · Backend esperado: <span id="cfgBackendEsperado"></span> · Backend conectado: <span id="cfgBackendVersion">—</span>
+    </div>
   </section>
 </main>
 
@@ -362,6 +375,11 @@ const DEFAULT_CONFIG = {
 };
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
+const BACKEND_VERSION_ESPERADA = 'v4';
+const APP_VERSION = 'v5.2 (importación de estructura completa)';
+document.getElementById('loginAppVersion').textContent = APP_VERSION;
+document.getElementById('cfgAppVersion').textContent = APP_VERSION;
+document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
 const ESTADOS = {
   leida:        { label:'Leída',                clase:'' },
   sin_acceso:   { label:'Sin acceso',            clase:'sinacceso' },
@@ -387,10 +405,40 @@ async function apiCall(action, extra={}){
   return await resp.json();
 }
 
+function verificarVersionBackend(respuesta){
+  const chip = document.getElementById('cfgBackendVersion');
+  if(chip) chip.textContent = (respuesta && respuesta.version) ? respuesta.version : 'sin respuesta';
+  const yaAvisado = document.getElementById('avisoBackendDesactualizado');
+  if(!respuesta || respuesta.version !== BACKEND_VERSION_ESPERADA){
+    if(yaAvisado) return;
+    const warn = document.createElement('div');
+    warn.id = 'avisoBackendDesactualizado';
+    warn.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(10,20,20,.85);display:flex;align-items:center;justify-content:center;padding:20px;';
+    warn.innerHTML = `<div style="background:#fff;border-radius:14px;padding:22px;max-width:400px;line-height:1.5;font-size:.85rem;">
+      <h2 style="margin:0 0 10px;color:#b3432f;font-size:1.05rem;">⚠ Tu Google Apps Script está desactualizado</h2>
+      <p>La URL configurada está respondiendo con una versión de código distinta a la que la app necesita (esperaba <b>${BACKEND_VERSION_ESPERADA}</b>, recibió <b>${respuesta && respuesta.version ? respuesta.version : 'ninguna — código muy antiguo'}</b>). Por eso los cambios no se están guardando de verdad.</p>
+      <p><b>Cómo arreglarlo:</b></p>
+      <ol style="padding-left:18px;margin:0 0 12px;">
+        <li>Ve a tu Google Sheet → Extensiones → Apps Script</li>
+        <li>Confirma que el código pegado es el más reciente que te entregué</li>
+        <li>Implementar → <b>Gestionar implementaciones</b></li>
+        <li>Haz clic en el lápiz (editar) de la implementación activa</li>
+        <li>En "Versión" elige <b>Nueva versión</b> → Implementar</li>
+      </ol>
+      <p style="margin:0;color:#6b7c79;">Guardar el código en el editor NO actualiza la URL por sí solo — siempre hay que crear una nueva versión de la implementación.</p>
+      <button onclick="location.reload()" style="width:100%;margin-top:14px;padding:10px;background:#0f5c56;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">Ya lo actualicé, reintentar</button>
+    </div>`;
+    document.body.appendChild(warn);
+  } else if(yaAvisado){
+    yaAvisado.remove();
+  }
+}
+
 async function loadState(){
   document.getElementById('emailDestino').value = '';
   try{
     const est = await apiCall('estado_get');
+    verificarVersionBackend(est);
     if(est.ok && est.estado){
       CONFIG = est.estado.config || DEFAULT_CONFIG;
       USERS = (est.estado.users && est.estado.users.length) ? est.estado.users : DEFAULT_USERS;
@@ -441,8 +489,10 @@ async function saveEstado(){
       config: CONFIG, users: USERS, umbrales: UMBRALES, periodosCerrados: PERIODOS_CERRADOS,
       emailDestino: document.getElementById('emailDestino').value
     }});
+    verificarVersionBackend(r);
     if(!r.ok) throw new Error(r.error||'estado_set falló');
     estadoServidorOk = true;
+    toast('✓ Guardado en Sheets', 1200);
   }catch(e){ estadoServidorOk = false; avisarErrorGuardado(e); }
   actualizarEstadoConexionBD();
 }
@@ -1208,6 +1258,70 @@ function findPisoParaDepto(torreId, depto){
   for(const p of t.pisos){ if(p.unidades.find(u=> normaliza(u.depto)===normaliza(depto))) return p.piso; }
   return null;
 }
+document.getElementById('importEstructuraFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  const resultBox = document.getElementById('importEstructuraResult');
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(ev){
+    try{
+      const data = new Uint8Array(ev.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      if(rows.length===0){ resultBox.style.display='block'; resultBox.textContent='⚠ El archivo no tiene filas.'; e.target.value=''; return; }
+
+      const totalUnidadesActuales = CONFIG.torres.reduce((s,t)=>s+t.pisos.reduce((s2,p)=>s2+p.unidades.length,0),0);
+      if(!confirm(`Esto va a REEMPLAZAR toda la estructura actual (${totalUnidadesActuales} unidades) por ${rows.length} unidades nuevas leídas del archivo. ¿Continuar?`)){
+        e.target.value=''; return;
+      }
+
+      // Agrupar por Torre -> Piso -> [unidades], preservando el orden de aparición
+      const torresMap = new Map(); // nombreTorre -> {id, pisos: Map(piso -> [{depto,medidor}])}
+      let filasValidas = 0, filasInvalidas = 0;
+      rows.forEach(row=>{
+        const torreNombre = (row.Torre ?? row.torre ?? row.TORRE ?? '').toString().trim();
+        const piso = (row.Piso ?? row.piso ?? row.PISO ?? '').toString().trim();
+        const depto = (row.Depto ?? row.depto ?? row.DEPTO ?? '').toString().trim();
+        const medidor = (row.Medidor ?? row.medidor ?? row.MEDIDOR ?? '').toString().trim();
+        if(!torreNombre || !depto){ filasInvalidas++; return; }
+        if(!torresMap.has(torreNombre)){
+          const existente = CONFIG.torres.find(t=>t.nombre===torreNombre);
+          torresMap.set(torreNombre, { id: existente ? existente.id : 'T'+Date.now()+Math.floor(Math.random()*1000), pisos: new Map() });
+        }
+        const torreObj = torresMap.get(torreNombre);
+        if(!torreObj.pisos.has(piso)) torreObj.pisos.set(piso, []);
+        torreObj.pisos.get(piso).push({ depto, medidor: medidor || depto });
+        filasValidas++;
+      });
+
+      const nuevasTorres = [];
+      torresMap.forEach((torreObj, nombre)=>{
+        const pisos = [];
+        torreObj.pisos.forEach((unidades, piso)=>{
+          pisos.push({ piso: isNaN(parseInt(piso)) ? piso : parseInt(piso), unidades });
+        });
+        pisos.sort((a,b)=> (isNaN(a.piso)?999:a.piso) - (isNaN(b.piso)?999:b.piso));
+        nuevasTorres.push({ id: torreObj.id, nombre, pisos });
+      });
+
+      CONFIG = { torres: nuevasTorres };
+      await saveConfig();
+      populateTorreSelect();
+      renderConfig();
+
+      resultBox.style.display='block';
+      resultBox.textContent = `✓ Estructura reemplazada: ${nuevasTorres.length} torre(s), ${filasValidas} unidad(es) cargadas.` + (filasInvalidas ? `\n⚠ ${filasInvalidas} fila(s) sin Torre o Depto fueron ignoradas.` : '');
+      toast(`✓ Estructura importada: ${filasValidas} unidades`);
+    }catch(err){
+      resultBox.style.display='block';
+      resultBox.textContent = '⚠ No se pudo leer el archivo. Verifica que tenga columnas Torre, Piso, Depto, Medidor.';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+});
+
 document.getElementById('importFile').addEventListener('change', (e)=>{
   const file = e.target.files[0];
   const periodoImport = document.getElementById('importPeriodo').value.trim();
