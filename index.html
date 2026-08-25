@@ -448,7 +448,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v5.8 (casillero de captura siempre en blanco, interfaz más clara)';
+const APP_VERSION = 'v5.9 (corrige pérdida de datos al guardar con campos en blanco)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -1092,6 +1092,12 @@ function datosDesdeCard(card){
   const obs = card.querySelector('.in-obs').value;
   const depto = key.split('|')[3];
 
+  // Si el estado sigue en "Leída" y no se escribió ninguna lectura nueva,
+  // no hay nada que guardar para este depto — no se toca lo que ya existía.
+  if(estado==='leida' && actual===''){
+    return { key, depto, guardada:false, anom:null, valido:true, sinCambios:true };
+  }
+
   if(estado==='leida' && (!validaFormatoLectura(actual) || !validaFormatoLectura(anterior))){
     return { key, depto, guardada:false, anom:null, valido:false };
   }
@@ -1112,7 +1118,7 @@ function datosDesdeCard(card){
     revisada: (prev.revisada && prev.actual===parseFloat(actual)) ? prev.revisada : false
   };
   const anom = estado==='leida' ? detectarAnomalia(anterior, actual, currentTorre, depto) : null;
-  return { key, depto, guardada: unidadProcesada(LECTURAS[key]), anom, valido:true };
+  return { key, depto, guardada: unidadProcesada(LECTURAS[key]), anom, valido:true, sinCambios:false };
 }
 
 async function guardarUnaTarjeta(card){
@@ -1120,7 +1126,12 @@ async function guardarUnaTarjeta(card){
   if(card.dataset.editable === 'false'){ toast('🔒 No puedes editar este registro'); return; }
   const btn = card.querySelector('.b-guardar');
   if(btn){ btn.textContent = '💾 Guardando…'; btn.style.pointerEvents='none'; }
-  const { key, depto, anom, valido } = datosDesdeCard(card);
+  const { key, depto, anom, valido, sinCambios } = datosDesdeCard(card);
+  if(sinCambios){
+    toast(`Escribe una lectura para el depto ${depto} antes de guardar`, 2500);
+    if(btn){ btn.textContent = '💾 Guardar'; btn.style.pointerEvents=''; }
+    return;
+  }
   if(!valido){
     toast(`⚠ Depto ${depto}: formato inválido, usa ###.### (o ##.### / 0) — no se guardó`, 3500);
     if(btn){ btn.textContent = '💾 Guardar'; btn.style.pointerEvents=''; }
@@ -1143,12 +1154,17 @@ async function collectAndSave(){
   const clavesGuardadas = [];
   cards.forEach(card=>{
     if(card.dataset.editable === 'false'){ bloqueadas++; return; }
-    const { key, depto, guardada, anom, valido } = datosDesdeCard(card);
+    const { key, depto, guardada, anom, valido, sinCambios } = datosDesdeCard(card);
+    if(sinCambios) return; // nada escrito en este depto: se deja tal como estaba
     if(!valido){ invalidas++; invalidasDepto.push(depto); return; }
     if(guardada) guardadas++;
     clavesGuardadas.push(key);
     if(anom) anomalias.push({depto, ...anom});
   });
+  if(clavesGuardadas.length===0 && invalidas===0){
+    toast('No escribiste ninguna lectura nueva en este piso');
+    return;
+  }
   await saveLecturas();
   await enviarASheets(buildRowsForKeys(clavesGuardadas), {silencioso:true, clavesOriginales:clavesGuardadas});
 
