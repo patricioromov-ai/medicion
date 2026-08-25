@@ -43,6 +43,14 @@
   main{padding:14px 12px 12px;max-width:720px;margin:0 auto;}
   .selector-row{display:flex;gap:8px;margin-bottom:8px;}
   select, input[type=text], input[type=number], input[type=password]{ font-family:inherit;font-size:.95rem;padding:10px 10px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);width:100%; }
+  .in-actual{
+    font-size:1.5rem;font-weight:700;text-align:center;letter-spacing:1px;
+    padding:14px 10px;border:2px solid var(--teal);border-radius:10px;
+    color:var(--teal-dark);background:#fbfffe;
+  }
+  .in-actual::placeholder{font-size:.85rem;font-weight:400;color:#a9bab7;letter-spacing:normal;}
+  .in-actual:focus{outline:none;border-color:var(--teal-dark);box-shadow:0 0 0 3px rgba(15,92,86,.15);}
+  .in-actual.invalido{border-color:var(--red) !important;background:var(--red-soft) !important;color:var(--red);}
   select:focus, input:focus{outline:2px solid var(--teal);outline-offset:1px;}
   .selector-row select{flex:1;}
   .selector-row button.nextbtn{flex:0 0 46px;background:var(--teal);color:#fff;border:none;border-radius:8px;font-size:1.1rem;cursor:pointer;}
@@ -105,7 +113,7 @@
   .field-grid label{font-size:.68rem;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px;}
   .lectura-label{font-size:.68rem;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px;}
   .formato-hint{font-size:.66rem;color:var(--muted);margin:-4px 0 8px;}
-  .in-anterior.invalido, .in-actual.invalido{border-color:var(--red) !important;background:var(--red-soft) !important;}
+  .in-anterior.invalido{border-color:var(--red) !important;background:var(--red-soft) !important;}
   .formato-error{font-size:.7rem;color:var(--red);font-weight:600;margin:-4px 0 8px;}
   input:disabled, textarea:disabled, select:disabled{background:#f0f2f1;color:#6b7c79;}
   .consumo-line{display:flex;justify-content:space-between;align-items:center;background:var(--teal-soft);border-radius:6px;padding:6px 10px;margin-top:4px;font-size:.85rem;}
@@ -440,7 +448,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v5.7 (lectura anterior oculta en pantalla)';
+const APP_VERSION = 'v5.8 (casillero de captura siempre en blanco, interfaz más clara)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -909,7 +917,8 @@ function renderUnitList(){
     let reg = LECTURAS[key];
     const estado = (reg && reg.estado) || 'leida';
     let anteriorSugerida = reg && reg.anterior!=null ? reg.anterior : findLecturaAnterior(currentTorre, u.depto);
-    const actualVal = reg && reg.actual!=null ? formatLectura(reg.actual) : '';
+    const yaGuardado = !!(reg && reg.actual!=null);
+    const actualVal = ''; // el casillero de captura siempre parte vacío, listo para digitar
     const anteriorVal = anteriorSugerida!=null ? formatLectura(anteriorSugerida) : '';
     const obsVal = reg && reg.obs ? reg.obs : '';
     const hasFoto = !!(reg && reg.tieneFoto);
@@ -917,10 +926,8 @@ function renderUnitList(){
     const editable = puedeEditar(reg) && !cerrado;
     let consumo = '';
     let anom = null;
-    if(estado==='leida'){
-      anom = detectarAnomalia(anteriorVal, actualVal, currentTorre, u.depto);
-      if(anom) anomPiso++;
-      if(actualVal!=='' && anteriorVal!=='') consumo = (parseFloat(actualVal) - parseFloat(anteriorVal));
+    if(estado==='leida' && yaGuardado && anteriorVal!==''){
+      consumo = (reg.actual - parseFloat(anteriorVal));
     }
     if(unidadProcesada(reg)) procesadas++;
 
@@ -928,13 +935,12 @@ function renderUnitList(){
     const disLectura = (editable && estado==='leida') ? '' : 'disabled';
     const estadoClase = ESTADOS[estado] ? ESTADOS[estado].clase : '';
     let badgeExtra = '';
-    if(anom) badgeExtra = '<span class="badge-warn">⚠ Anomalía</span>';
-    else if(estado!=='leida') badgeExtra = `<span class="badge-estado ${estadoClase}">${etiquetaEstado(estado)}</span>`;
+    if(estado!=='leida') badgeExtra = `<span class="badge-estado ${estadoClase}">${etiquetaEstado(estado)}</span>`;
     else if(!editable) badgeExtra = '<span class="badge-locked">🔒 Solo lectura</span>';
-    else if(actualVal!=='') badgeExtra = '<span class="badge-ok">Tomada</span>';
+    else if(yaGuardado) badgeExtra = '<span class="badge-ok">Tomada</span>';
 
     html += `
-    <div class="unit-card ${actualVal!==''&&estado==='leida'?'done':''} ${anom?'warn':''} ${estado!=='leida'?estadoClase:''} ${editable?'':'locked'}" data-key="${key}" data-editable="${editable}">
+    <div class="unit-card ${yaGuardado&&estado==='leida'?'done':''} ${estado!=='leida'?estadoClase:''} ${editable?'':'locked'}" data-key="${key}" data-editable="${editable}">
       <div class="unit-head">
         <div>
           <div class="depto">Depto ${u.depto}</div>
@@ -947,14 +953,11 @@ function renderUnitList(){
         ${Object.keys(ESTADOS).map(k=>`<option value="${k}" ${estado===k?'selected':''}>${ESTADOS[k].label}</option>`).join('')}
       </select>
       <div style="display:none;"><input type="text" class="in-anterior" value="${anteriorVal}"></div>
-      <label class="lectura-label">Lectura actual</label>
-      <input type="text" inputmode="decimal" class="in-actual" value="${actualVal}" placeholder="003.847" ${disLectura}>
-      <div class="formato-hint">Formato: ###.### (o ##.### / 0) — igual a como se ve en el medidor</div>
-      <div class="consumo-line ${anom?'alerta':''}">
+      <input type="text" inputmode="decimal" class="in-actual" value="" placeholder="Escribe la lectura: 003.847" ${disLectura}>
+      <div class="consumo-line">
         <span>Consumo del periodo</span>
         <b class="consumo-val">${estado!=='leida' ? 'N/A' : (consumo!=='' && !isNaN(consumo) ? consumo.toFixed(2)+' m³' : '—')}</b>
       </div>
-      ${anom ? `<div class="anom-tag">⚠ ${anom.motivo}</div>` : ''}
       <textarea class="in-obs" placeholder="Observaciones (opcional)" ${dis}>${obsVal}</textarea>
       <div class="unit-tools">
         <div class="btn-mini b-guardar" data-key="${key}" ${editable?'':'disabled'}>💾 Guardar</div>
