@@ -103,6 +103,9 @@
   select.in-estado{margin-bottom:8px;font-size:.85rem;padding:8px;}
   .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
   .field-grid label{font-size:.68rem;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px;}
+  .formato-hint{font-size:.66rem;color:var(--muted);margin:-4px 0 8px;}
+  .in-anterior.invalido, .in-actual.invalido{border-color:var(--red) !important;background:var(--red-soft) !important;}
+  .formato-error{font-size:.7rem;color:var(--red);font-weight:600;margin:-4px 0 8px;}
   input:disabled, textarea:disabled, select:disabled{background:#f0f2f1;color:#6b7c79;}
   .consumo-line{display:flex;justify-content:space-between;align-items:center;background:var(--teal-soft);border-radius:6px;padding:6px 10px;margin-top:4px;font-size:.85rem;}
   .consumo-line b{color:var(--teal-dark);}
@@ -436,7 +439,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v5.5 (detección de anomalías por consumo desactivada)';
+const APP_VERSION = 'v5.6 (formato de lectura ###.### validado)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -863,6 +866,23 @@ function findLecturaAnterior(torreId, depto){
   return mejor;
 }
 
+/* =========================================================
+   FORMATO DE LECTURA: ###.### / ##.### / 0
+   ========================================================= */
+function formatLectura(v){
+  if(v===null || v===undefined || v==='') return '';
+  const n = Number(v);
+  if(isNaN(n)) return String(v);
+  if(n===0) return '0';
+  return n.toFixed(3);
+}
+function validaFormatoLectura(str){
+  if(str===null || str===undefined) return true;
+  const s = String(str).trim();
+  if(s==='') return true; // vacío se valida aparte (campo no obligatorio)
+  return /^(0|\d{1,4}\.\d{3})$/.test(s);
+}
+
 function renderUnitList(){
   if(!currentUser) return;
   const list = document.getElementById('unitList');
@@ -888,8 +908,8 @@ function renderUnitList(){
     let reg = LECTURAS[key];
     const estado = (reg && reg.estado) || 'leida';
     let anteriorSugerida = reg && reg.anterior!=null ? reg.anterior : findLecturaAnterior(currentTorre, u.depto);
-    const actualVal = reg && reg.actual!=null ? reg.actual : '';
-    const anteriorVal = anteriorSugerida!=null ? anteriorSugerida : '';
+    const actualVal = reg && reg.actual!=null ? formatLectura(reg.actual) : '';
+    const anteriorVal = anteriorSugerida!=null ? formatLectura(anteriorSugerida) : '';
     const obsVal = reg && reg.obs ? reg.obs : '';
     const hasFoto = !!(reg && reg.tieneFoto);
     const fotoUrl = reg && reg.fotoUrl;
@@ -926,9 +946,10 @@ function renderUnitList(){
         ${Object.keys(ESTADOS).map(k=>`<option value="${k}" ${estado===k?'selected':''}>${ESTADOS[k].label}</option>`).join('')}
       </select>
       <div class="field-grid">
-        <div><label>Lectura anterior</label><input type="number" step="0.01" class="in-anterior" value="${anteriorVal}" ${disLectura}></div>
-        <div><label>Lectura actual</label><input type="number" step="0.01" class="in-actual" value="${actualVal}" placeholder="0.00" ${disLectura}></div>
+        <div><label>Lectura anterior</label><input type="text" inputmode="decimal" class="in-anterior" value="${anteriorVal}" placeholder="003.847" ${disLectura}></div>
+        <div><label>Lectura actual</label><input type="text" inputmode="decimal" class="in-actual" value="${actualVal}" placeholder="003.847" ${disLectura}></div>
       </div>
+      <div class="formato-hint">Formato: ###.### (o ##.### / 0) — igual a como se ve en el medidor</div>
       <div class="consumo-line ${anom?'alerta':''}">
         <span>Consumo del periodo</span>
         <b class="consumo-val">${estado!=='leida' ? 'N/A' : (consumo!=='' && !isNaN(consumo) ? consumo.toFixed(2)+' m³' : '—')}</b>
@@ -972,10 +993,24 @@ function attachUnitEvents(){
     function recalc(){
       const estado = inEstado.value;
       let anom = null;
+
+      const anteriorOk = validaFormatoLectura(inAnterior.value);
+      const actualOk = validaFormatoLectura(inActual.value);
+      inAnterior.classList.toggle('invalido', !anteriorOk);
+      inActual.classList.toggle('invalido', !actualOk);
+      let msgError = card.querySelector('.formato-error');
+      if(msgError) msgError.remove();
+      if(!anteriorOk || !actualOk){
+        const campo = document.createElement('div');
+        campo.className = 'formato-error';
+        campo.textContent = '⚠ Formato inválido — usa ###.### (o ##.### / 0)';
+        inActual.closest('.field-grid').insertAdjacentElement('afterend', campo);
+      }
+
       if(estado==='leida'){
         anom = detectarAnomalia(inAnterior.value, inActual.value, currentTorre, depto);
         const a = parseFloat(inActual.value), b = parseFloat(inAnterior.value);
-        consumoVal.textContent = (!isNaN(a) && !isNaN(b)) ? (a-b).toFixed(2)+' m³' : '—';
+        consumoVal.textContent = (anteriorOk && actualOk && !isNaN(a) && !isNaN(b)) ? (a-b).toFixed(2)+' m³' : '—';
       } else {
         consumoVal.textContent = 'N/A';
       }
@@ -1052,8 +1087,13 @@ function datosDesdeCard(card){
   const actual = card.querySelector('.in-actual').value;
   const anterior = card.querySelector('.in-anterior').value;
   const obs = card.querySelector('.in-obs').value;
-  const prev = LECTURAS[key] || {};
   const depto = key.split('|')[3];
+
+  if(estado==='leida' && (!validaFormatoLectura(actual) || !validaFormatoLectura(anterior))){
+    return { key, depto, guardada:false, anom:null, valido:false };
+  }
+
+  const prev = LECTURAS[key] || {};
   const now = new Date().toISOString();
   LECTURAS[key] = {
     estado: estado,
@@ -1069,7 +1109,7 @@ function datosDesdeCard(card){
     revisada: (prev.revisada && prev.actual===parseFloat(actual)) ? prev.revisada : false
   };
   const anom = estado==='leida' ? detectarAnomalia(anterior, actual, currentTorre, depto) : null;
-  return { key, depto, guardada: unidadProcesada(LECTURAS[key]), anom };
+  return { key, depto, guardada: unidadProcesada(LECTURAS[key]), anom, valido:true };
 }
 
 async function guardarUnaTarjeta(card){
@@ -1077,7 +1117,12 @@ async function guardarUnaTarjeta(card){
   if(card.dataset.editable === 'false'){ toast('🔒 No puedes editar este registro'); return; }
   const btn = card.querySelector('.b-guardar');
   if(btn){ btn.textContent = '💾 Guardando…'; btn.style.pointerEvents='none'; }
-  const { key, depto, anom } = datosDesdeCard(card);
+  const { key, depto, anom, valido } = datosDesdeCard(card);
+  if(!valido){
+    toast(`⚠ Depto ${depto}: formato inválido, usa ###.### (o ##.### / 0) — no se guardó`, 3500);
+    if(btn){ btn.textContent = '💾 Guardar'; btn.style.pointerEvents=''; }
+    return;
+  }
   await saveLecturas();
   await enviarASheets(buildRowsForKeys([key]), {silencioso:true, clavesOriginales:[key]});
   if(anom) toast(`⚠ Guardado — Depto ${depto}: ${anom.motivo}`);
@@ -1089,12 +1134,14 @@ async function guardarUnaTarjeta(card){
 async function collectAndSave(){
   if(periodoCerrado(periodo())){ toast('🔒 Este periodo está cerrado, no se puede guardar'); return; }
   const cards = document.querySelectorAll('.unit-card');
-  let guardadas = 0, bloqueadas = 0;
+  let guardadas = 0, bloqueadas = 0, invalidas = 0;
   const anomalias = [];
+  const invalidasDepto = [];
   const clavesGuardadas = [];
   cards.forEach(card=>{
     if(card.dataset.editable === 'false'){ bloqueadas++; return; }
-    const { key, depto, guardada, anom } = datosDesdeCard(card);
+    const { key, depto, guardada, anom, valido } = datosDesdeCard(card);
+    if(!valido){ invalidas++; invalidasDepto.push(depto); return; }
     if(guardada) guardadas++;
     clavesGuardadas.push(key);
     if(anom) anomalias.push({depto, ...anom});
@@ -1103,7 +1150,12 @@ async function collectAndSave(){
   await enviarASheets(buildRowsForKeys(clavesGuardadas), {silencioso:true, clavesOriginales:clavesGuardadas});
 
   const banner = document.getElementById('alertBanner');
-  if(anomalias.length>0){
+  if(invalidas>0){
+    banner.style.display = 'block';
+    banner.innerHTML = `<b>⚠ ${invalidas} depto(s) NO se guardaron por formato inválido (usa ###.### o ##.### o 0):</b>
+      <ul>${invalidasDepto.map(d=>`<li>Depto ${d}</li>`).join('')}</ul>`;
+    toast(`⚠ Guardado: ${guardadas} ✓ — ${invalidas} con formato inválido, revisa esos deptos`, 3500);
+  } else if(anomalias.length>0){
     banner.style.display = 'block';
     banner.innerHTML = `<b>⚠ Se guardaron ${guardadas} lecturas — ${anomalias.length} anomalía(s) detectada(s):</b>
       <ul>${anomalias.map(a=>`<li>Depto ${a.depto}: ${a.motivo} (consumo ${a.consumo.toFixed(2)} m³)</li>`).join('')}</ul>`;
