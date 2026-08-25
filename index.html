@@ -86,6 +86,12 @@
   .alert-banner b{display:block;margin-bottom:4px;font-size:.85rem;}
   .alert-banner ul{margin:0;padding-left:18px;}
   .closed-banner{display:none;background:#eceff0;border:1px solid #b7c2c0;color:#3c4a48;border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:.82rem;}
+  .pendiente-banner{
+    background:var(--amber-soft);border:2px solid var(--amber);color:#7a5a10;border-radius:var(--radius);
+    padding:12px;margin-bottom:12px;font-size:.84rem;font-weight:600;cursor:pointer;line-height:1.4;
+    animation:pulseAmber 1.8s ease-in-out infinite;
+  }
+  @keyframes pulseAmber{ 0%,100%{box-shadow:0 0 0 0 rgba(217,140,43,.35);} 50%{box-shadow:0 0 0 6px rgba(217,140,43,0);} }
 
   .unit-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--teal);border-radius:var(--radius);padding:12px;margin-bottom:10px;scroll-margin-top:180px;}
   .unit-card.done{border-left-color:#4c8c66;}
@@ -267,6 +273,7 @@
     </div>
 
     <div class="closed-banner" id="closedBanner">🔒 Este periodo está cerrado. Solo un administrador puede reabrirlo desde Configuración → Periodos.</div>
+    <div class="pendiente-banner" id="pendienteBanner" style="display:none;"></div>
     <div class="alert-banner" id="alertBanner"></div>
 
     <div class="summary-bar">
@@ -448,7 +455,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v5.9 (corrige pérdida de datos al guardar con campos en blanco)';
+const APP_VERSION = 'v6.0 (mensaje honesto de guardado + aviso visible de pendientes)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -677,12 +684,22 @@ function refreshConnUI(){
   chip.textContent = online ? '🟢 En línea' : '🔴 Sin conexión';
   chip.className = 'conn-chip ' + (online?'on':'off');
   const pendChip = document.getElementById('pendChip');
-  if(COLA_PENDIENTE.length>0){ pendChip.style.display='inline-block'; pendChip.textContent = `⏳ ${COLA_PENDIENTE.length} por sincronizar`; }
-  else pendChip.style.display='none';
+  const pendBanner = document.getElementById('pendienteBanner');
+  if(COLA_PENDIENTE.length>0){
+    pendChip.style.display='inline-block'; pendChip.textContent = `⏳ ${COLA_PENDIENTE.length} por sincronizar`;
+    if(pendBanner){
+      pendBanner.style.display='block';
+      pendBanner.textContent = `⏳ ${COLA_PENDIENTE.length} lectura(s) guardadas en este celular pero AÚN NO llegan a Google Sheets. No cierres ni recargues la app hasta que este aviso desaparezca — toca aquí para reintentar ahora.`;
+    }
+  } else {
+    pendChip.style.display='none';
+    if(pendBanner) pendBanner.style.display='none';
+  }
 }
 window.addEventListener('online', ()=>{ refreshConnUI(); reintentarCola(); });
 window.addEventListener('offline', refreshConnUI);
 document.getElementById('pendChip').addEventListener('click', reintentarCola);
+document.getElementById('pendienteBanner').addEventListener('click', reintentarCola);
 async function reintentarCola(){
   if(COLA_PENDIENTE.length===0) return;
   const claves = [...COLA_PENDIENTE];
@@ -1138,9 +1155,14 @@ async function guardarUnaTarjeta(card){
     return;
   }
   await saveLecturas();
-  await enviarASheets(buildRowsForKeys([key]), {silencioso:true, clavesOriginales:[key]});
-  if(anom) toast(`⚠ Guardado — Depto ${depto}: ${anom.motivo}`);
-  else toast(`Guardado ✓ Depto ${depto}`);
+  const sincronizado = await enviarASheets(buildRowsForKeys([key]), {silencioso:true, clavesOriginales:[key]});
+  if(!sincronizado){
+    toast(`⚠ Depto ${depto}: NO se pudo enviar a Sheets (sin señal o error de conexión). NO CIERRES la app — se reintentará solo.`, 5000);
+  } else if(anom){
+    toast(`⚠ Guardado y sincronizado — Depto ${depto}: ${anom.motivo}`);
+  } else {
+    toast(`✓ Guardado y sincronizado — Depto ${depto}`);
+  }
   renderUnitList();
   refreshAnomBadge();
 }
@@ -1166,10 +1188,14 @@ async function collectAndSave(){
     return;
   }
   await saveLecturas();
-  await enviarASheets(buildRowsForKeys(clavesGuardadas), {silencioso:true, clavesOriginales:clavesGuardadas});
+  const sincronizado = await enviarASheets(buildRowsForKeys(clavesGuardadas), {silencioso:true, clavesOriginales:clavesGuardadas});
 
   const banner = document.getElementById('alertBanner');
-  if(invalidas>0){
+  if(!sincronizado){
+    banner.style.display = 'block';
+    banner.innerHTML = `<b>⚠ Se guardaron ${guardadas} lecturas EN EL CELULAR pero NO llegaron a Google Sheets todavía</b> (sin señal o error de conexión). No cierres ni recargues la app — se va a reintentar solo apenas vuelva la conexión.`;
+    toast(`⚠ ${guardadas} lecturas guardadas pero SIN sincronizar — no cierres la app`, 5000);
+  } else if(invalidas>0){
     banner.style.display = 'block';
     banner.innerHTML = `<b>⚠ ${invalidas} depto(s) NO se guardaron por formato inválido (usa ###.### o ##.### o 0):</b>
       <ul>${invalidasDepto.map(d=>`<li>Depto ${d}</li>`).join('')}</ul>`;
@@ -1645,7 +1671,7 @@ function updateSyncStatus(isoOrMsg, ok){
 }
 
 async function enviarASheets(rows, {silencioso=false, boton=null, clavesOriginales=null}={}){
-  if(rows.length===0) return;
+  if(rows.length===0) return true;
   if(boton){ boton.disabled = true; boton.textContent = '🔄 Sincronizando…'; }
   try{
     const data = await apiCall('lecturas_set', { rows });
@@ -1655,12 +1681,14 @@ async function enviarASheets(rows, {silencioso=false, boton=null, clavesOriginal
     if(clavesOriginales) COLA_PENDIENTE = COLA_PENDIENTE.filter(k=>!clavesOriginales.includes(k));
     refreshConnUI();
     if(!silencioso) toast(`Sincronizado con Sheets ✓ (${rows.length} filas)`);
+    return true;
   }catch(err){
     updateSyncStatus(null, false);
     estadoServidorOk = false; actualizarEstadoConexionBD();
     if(clavesOriginales) clavesOriginales.forEach(k=>{ if(!COLA_PENDIENTE.includes(k)) COLA_PENDIENTE.push(k); });
     refreshConnUI();
     if(!silencioso) toast('⚠ No se pudo sincronizar con Sheets. Se reintentará — no cierres la app hasta ver la confirmación.');
+    return false;
   }finally{
     if(boton){ boton.disabled = false; boton.textContent = '🔄 Reenviar todas las lecturas locales'; }
   }
