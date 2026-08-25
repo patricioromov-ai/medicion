@@ -108,6 +108,9 @@
   .autor-line{font-size:.68rem;color:var(--muted);margin:-4px 0 8px;}
   .autor-line.locked-msg{color:#8a6d1f;background:var(--amber-soft);padding:4px 8px;border-radius:6px;display:inline-block;}
   .badge-ok{font-size:.66rem;font-weight:700;color:#2f6b46;background:#e2f3e6;padding:3px 8px;border-radius:12px;}
+  .badge-pendiente{font-size:.66rem;font-weight:700;color:#8a6d1f;background:var(--amber-soft);padding:3px 8px;border-radius:12px;}
+  .ya-tomado-msg{font-size:.76rem;color:#2f6b46;background:#e2f3e6;border-radius:7px;padding:8px 10px;margin:6px 0 8px;line-height:1.4;}
+  .ya-tomado-msg .mini-link{color:var(--teal-dark);text-decoration:underline;font-weight:700;cursor:pointer;margin-left:4px;}
   .badge-warn{font-size:.66rem;font-weight:700;color:var(--red);background:var(--red-soft);padding:3px 8px;border-radius:12px;}
   .badge-locked{font-size:.66rem;font-weight:700;color:#6b6b6b;background:#e9e9e6;padding:3px 8px;border-radius:12px;}
   .badge-estado{font-size:.66rem;font-weight:700;padding:3px 8px;border-radius:12px;}
@@ -455,7 +458,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v6.0 (mensaje honesto de guardado + aviso visible de pendientes)';
+const APP_VERSION = 'v6.2 (bloquea reingreso de lecturas ya tomadas)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -619,6 +622,7 @@ function reconstruirLecturasDesdeFilas(rows){
       torre: torreId, piso: piso,
       autor: row['Autor (usuario)'] || '',
       autorNombre: row['Registrado por'] || '',
+      sincronizado: true,
       revisada: row['Revisada'] === 'Sí'
     };
   });
@@ -703,7 +707,12 @@ document.getElementById('pendienteBanner').addEventListener('click', reintentarC
 async function reintentarCola(){
   if(COLA_PENDIENTE.length===0) return;
   const claves = [...COLA_PENDIENTE];
-  await enviarASheets(buildRowsForKeys(claves), {silencioso:true, clavesOriginales:claves});
+  const ok = await enviarASheets(buildRowsForKeys(claves), {silencioso:true, clavesOriginales:claves});
+  if(ok){
+    claves.forEach(k=>{ if(LECTURAS[k]) LECTURAS[k].sincronizado = true; });
+    renderUnitList();
+    toast('✓ Datos pendientes ya sincronizados con Sheets');
+  }
 }
 
 /* =========================================================
@@ -935,6 +944,7 @@ function renderUnitList(){
     const estado = (reg && reg.estado) || 'leida';
     let anteriorSugerida = reg && reg.anterior!=null ? reg.anterior : findLecturaAnterior(currentTorre, u.depto);
     const yaGuardado = !!(reg && reg.actual!=null);
+    const sincronizadoOk = !!(reg && reg.sincronizado);
     const actualVal = ''; // el casillero de captura siempre parte vacío, listo para digitar
     const anteriorVal = anteriorSugerida!=null ? formatLectura(anteriorSugerida) : '';
     const obsVal = reg && reg.obs ? reg.obs : '';
@@ -949,12 +959,14 @@ function renderUnitList(){
     if(unidadProcesada(reg)) procesadas++;
 
     const dis = editable ? '' : 'disabled';
-    const disLectura = (editable && estado==='leida') ? '' : 'disabled';
+    const bloqueadoPorTomado = editable && estado==='leida' && yaGuardado;
+    const disLectura = (editable && estado==='leida' && !bloqueadoPorTomado) ? '' : 'disabled';
     const estadoClase = ESTADOS[estado] ? ESTADOS[estado].clase : '';
     let badgeExtra = '';
     if(estado!=='leida') badgeExtra = `<span class="badge-estado ${estadoClase}">${etiquetaEstado(estado)}</span>`;
     else if(!editable) badgeExtra = '<span class="badge-locked">🔒 Solo lectura</span>';
-    else if(yaGuardado) badgeExtra = '<span class="badge-ok">Tomada</span>';
+    else if(yaGuardado && sincronizadoOk) badgeExtra = '<span class="badge-ok">✓ Tomada</span>';
+    else if(yaGuardado && !sincronizadoOk) badgeExtra = '<span class="badge-pendiente">⏳ Guardado, sincronizando…</span>';
 
     html += `
     <div class="unit-card ${yaGuardado&&estado==='leida'?'done':''} ${estado!=='leida'?estadoClase:''} ${editable?'':'locked'}" data-key="${key}" data-editable="${editable}">
@@ -971,6 +983,7 @@ function renderUnitList(){
       </select>
       <div style="display:none;"><input type="text" class="in-anterior" value="${anteriorVal}"></div>
       <input type="text" inputmode="decimal" class="in-actual" value="" placeholder="Escribe la lectura: 003.847" ${disLectura}>
+      ${bloqueadoPorTomado ? `<div class="ya-tomado-msg">${sincronizadoOk?'✓':'⏳'} Ya se registró una lectura para este periodo. <span class="mini-link btn-corregir" data-key="${key}">✏️ Corregir</span></div>` : ''}
       <div class="consumo-line">
         <span>Consumo del periodo</span>
         <b class="consumo-val">${estado!=='leida' ? 'N/A' : (consumo!=='' && !isNaN(consumo) ? consumo.toFixed(2)+' m³' : '—')}</b>
@@ -1039,11 +1052,11 @@ function attachUnitEvents(){
       Object.values(ESTADOS).forEach(v=> v.clase && card.classList.remove(v.clase));
       if(estado!=='leida' && ESTADOS[estado]) card.classList.add(ESTADOS[estado].clase);
 
-      let badge = badgeSlot.querySelector('.badge-warn, .badge-ok, .badge-locked, .badge-estado');
+      let badge = badgeSlot.querySelector('.badge-warn, .badge-ok, .badge-locked, .badge-estado, .badge-pendiente');
       if(badge) badge.remove();
       if(anom) badgeSlot.insertAdjacentHTML('beforeend', '<span class="badge-warn">⚠ Anomalía</span>');
       else if(estado!=='leida') badgeSlot.insertAdjacentHTML('beforeend', `<span class="badge-estado ${ESTADOS[estado].clase}">${etiquetaEstado(estado)}</span>`);
-      else if(inActual.value!=='') badgeSlot.insertAdjacentHTML('beforeend', '<span class="badge-ok">Tomada</span>');
+      else if(inActual.value!=='') badgeSlot.insertAdjacentHTML('beforeend', '<span class="badge-pendiente">✏️ Sin guardar</span>');
 
       let anomTag = card.querySelector('.anom-tag');
       if(anomTag) anomTag.remove();
@@ -1058,6 +1071,14 @@ function attachUnitEvents(){
 
     const btnGuardar = card.querySelector('.b-guardar');
     if(btnGuardar) btnGuardar.addEventListener('click', ()=> guardarUnaTarjeta(card));
+
+    const btnCorregir = card.querySelector('.btn-corregir');
+    if(btnCorregir) btnCorregir.addEventListener('click', ()=>{
+      inActual.disabled = false;
+      inActual.focus();
+      const msg = card.querySelector('.ya-tomado-msg');
+      if(msg) msg.remove();
+    });
   });
 }
 
@@ -1132,6 +1153,7 @@ function datosDesdeCard(card){
     torre: currentTorre, piso: currentPiso,
     autor: prev.autor || currentUser.usuario,
     autorNombre: prev.autorNombre || currentUser.nombre,
+    sincronizado: false,
     revisada: (prev.revisada && prev.actual===parseFloat(actual)) ? prev.revisada : false
   };
   const anom = estado==='leida' ? detectarAnomalia(anterior, actual, currentTorre, depto) : null;
@@ -1156,6 +1178,7 @@ async function guardarUnaTarjeta(card){
   }
   await saveLecturas();
   const sincronizado = await enviarASheets(buildRowsForKeys([key]), {silencioso:true, clavesOriginales:[key]});
+  if(sincronizado && LECTURAS[key]) LECTURAS[key].sincronizado = true;
   if(!sincronizado){
     toast(`⚠ Depto ${depto}: NO se pudo enviar a Sheets (sin señal o error de conexión). NO CIERRES la app — se reintentará solo.`, 5000);
   } else if(anom){
@@ -1189,6 +1212,7 @@ async function collectAndSave(){
   }
   await saveLecturas();
   const sincronizado = await enviarASheets(buildRowsForKeys(clavesGuardadas), {silencioso:true, clavesOriginales:clavesGuardadas});
+  if(sincronizado) clavesGuardadas.forEach(k=>{ if(LECTURAS[k]) LECTURAS[k].sincronizado = true; });
 
   const banner = document.getElementById('alertBanner');
   if(!sincronizado){
