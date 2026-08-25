@@ -111,6 +111,8 @@
   .badge-pendiente{font-size:.66rem;font-weight:700;color:#8a6d1f;background:var(--amber-soft);padding:3px 8px;border-radius:12px;}
   .ya-tomado-msg{font-size:.76rem;color:#2f6b46;background:#e2f3e6;border-radius:7px;padding:8px 10px;margin:6px 0 8px;line-height:1.4;}
   .ya-tomado-msg .mini-link{color:var(--teal-dark);text-decoration:underline;font-weight:700;cursor:pointer;margin-left:4px;}
+  .toggle-ocultar{display:flex;align-items:center;gap:7px;font-size:.82rem;color:var(--muted);margin-bottom:12px;cursor:pointer;}
+  .toggle-ocultar input{width:16px;height:16px;accent-color:var(--teal);}
   .badge-warn{font-size:.66rem;font-weight:700;color:var(--red);background:var(--red-soft);padding:3px 8px;border-radius:12px;}
   .badge-locked{font-size:.66rem;font-weight:700;color:#6b6b6b;background:#e9e9e6;padding:3px 8px;border-radius:12px;}
   .badge-estado{font-size:.66rem;font-weight:700;padding:3px 8px;border-radius:12px;}
@@ -284,6 +286,7 @@
       <div class="summary-card"><div class="num" id="sumTomadas">0</div><div class="lbl">Procesadas</div></div>
       <div class="summary-card" id="cardAnomPiso"><div class="num" id="sumAnomPiso">0</div><div class="lbl">Anomalías piso</div></div>
     </div>
+    <label class="toggle-ocultar"><input type="checkbox" id="chkOcultarTomadas" checked> Ocultar deptos ya tomados en este piso</label>
 
     <div id="unitList"></div>
   </section>
@@ -458,7 +461,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v6.3 (verifica con el servidor antes de guardar, evita choques entre dispositivos)';
+const APP_VERSION = 'v6.5 (ocultar tomadas activado por defecto)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -821,9 +824,25 @@ async function refrescarYRenderizar(){
   const ok = await refrescarLecturasDesdeServidor();
   if(ok) renderUnitList(); // y actualiza apenas llega la confirmación del servidor
 }
+
+/* Refresco automático en segundo plano cada 20s mientras se está en la pestaña
+   Lecturas, para detectar lo que otro dispositivo guardó sin tener que navegar
+   ni presionar Guardar. Se detiene solo si la pestaña del navegador está oculta
+   (celular bloqueado / app en segundo plano), para no gastar batería/datos. */
+setInterval(async ()=>{
+  if(document.hidden) return;
+  if(!currentUser) return;
+  const enPestanaLecturas = document.getElementById('tab-lecturas').style.display !== 'none';
+  if(!enPestanaLecturas) return;
+  const algunCampoConTextoSinGuardar = [...document.querySelectorAll('.in-actual')].some(i=>i.value!=='' && !i.disabled);
+  if(algunCampoConTextoSinGuardar) return; // evita borrar algo que la persona está escribiendo ahora mismo
+  const ok = await refrescarLecturasDesdeServidor();
+  if(ok) renderUnitList();
+}, 20000);
 document.getElementById('selTorre').addEventListener('change', e=>{ currentTorre=e.target.value; currentPiso=null; populatePisoSelect(); });
 document.getElementById('selPiso').addEventListener('change', e=>{ currentPiso=e.target.value; refrescarYRenderizar(); });
 document.getElementById('periodoInput').addEventListener('change', ()=>{ refrescarYRenderizar(); refreshAnomBadge(); });
+document.getElementById('chkOcultarTomadas').addEventListener('change', renderUnitList);
 
 /* =========================================================
    NAVEGAR AL SIGUIENTE PISO PENDIENTE
@@ -959,6 +978,7 @@ function renderUnitList(){
 
   let html = '';
   let procesadas = 0, anomPiso = 0;
+  const ocultarTomadas = document.getElementById('chkOcultarTomadas').checked;
   for(const u of unidades){
     const key = unitKey(currentTorre, currentPiso, u.depto);
     let reg = LECTURAS[key];
@@ -978,6 +998,7 @@ function renderUnitList(){
       consumo = (reg.actual - parseFloat(anteriorVal));
     }
     if(unidadProcesada(reg)) procesadas++;
+    if(ocultarTomadas && yaGuardado && estado==='leida') continue;
 
     const dis = editable ? '' : 'disabled';
     const bloqueadoPorTomado = editable && estado==='leida' && yaGuardado;
@@ -1016,7 +1037,7 @@ function renderUnitList(){
       </div>
     </div>`;
   }
-  list.innerHTML = html;
+  list.innerHTML = html || '<div class="empty">🎉 Ya se tomaron todas las lecturas de este piso.<br>Desmarca "Ocultar deptos ya tomados" para revisarlas.</div>';
   updateSummary(unidades.length, procesadas, anomPiso);
   attachUnitEvents();
 }
