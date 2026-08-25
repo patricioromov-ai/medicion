@@ -57,6 +57,17 @@
   .search-results .empty2{padding:10px 12px;font-size:.8rem;color:var(--muted);}
 
   .summary-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+  .check-grid{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 8px;}
+  .check-grid label{
+    display:flex;align-items:center;gap:6px;font-size:.82rem;
+    background:#fff;border:1px solid var(--line);border-radius:20px;
+    padding:6px 12px 6px 8px;cursor:pointer;user-select:none;
+  }
+  .check-grid label:has(input:checked){background:var(--teal-soft);border-color:var(--teal);color:var(--teal-dark);font-weight:600;}
+  .check-grid input{width:16px;height:16px;accent-color:var(--teal);flex-shrink:0;}
+  .scroll-grid{max-height:180px;overflow-y:auto;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fbfcfb;}
+  .check-grid-tools{display:flex;gap:14px;margin:-2px 0 14px;}
+  .mini-link{font-size:.74rem;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline;}
   .summary-card{flex:1;min-width:70px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 8px;text-align:center;}
   .summary-card.warncard{border-color:var(--red);background:var(--red-soft);}
   .summary-card .num{font-size:1.2rem;font-weight:700;color:var(--teal-dark);}
@@ -200,7 +211,7 @@
     <input type="password" id="loginPassword" name="jdvm_pass_field" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="••••••">
     <div class="login-error" id="loginError">Usuario o contraseña incorrectos.</div>
     <button id="btnLogin">Ingresar</button>
-    <div class="login-note">Usuario inicial: <b>admin</b> / <b>admin123</b>. Cámbialo y crea usuarios de "Tomador de registro" desde Configuración → Usuarios una vez dentro. Debes iniciar sesión cada vez que abras la app (no queda la sesión guardada en el celular).</div>
+    <div class="login-note">Debes iniciar sesión cada vez que abras la app (no queda la sesión guardada en el celular).</div>
     <div style="text-align:center;font-size:.66rem;color:#a8b5b3;margin-top:10px;">App <span id="loginAppVersion"></span></div>
   </div>
 </div>
@@ -268,19 +279,27 @@
   <section id="tab-reportes" style="display:none;">
     <div class="cfg-section">
       <h3>Consolidado / reporte de mediciones</h3>
-      <p class="hint">Filtra por lo que necesites — una torre, un piso, una "línea" de deptos (ej. todos los 06 de todas las torres), deptos específicos, o todo el condominio junto — y descarga o envía el resultado.</p>
+      <p class="hint">Elige de las listas — una torre, un piso, una "línea" de deptos (ej. todos los 06 de todas las torres), o todo el condominio junto — y descarga o envía el resultado.</p>
 
       <label style="font-size:.75rem;color:var(--muted);">Periodo</label>
-      <input type="text" id="repPeriodo" style="margin:5px 0 12px;">
+      <select id="repPeriodo" style="margin:5px 0 12px;"></select>
 
-      <label style="font-size:.75rem;color:var(--muted);">Torres (vacío = todas)</label>
-      <div id="repTorresChecklist" style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 12px;font-size:.85rem;"></div>
+      <label style="font-size:.75rem;color:var(--muted);">Torres (todas marcadas = sin filtro)</label>
+      <div id="repTorresChecklist" class="check-grid"></div>
 
-      <label style="font-size:.75rem;color:var(--muted);">Pisos (opcional, separados por coma — ej: 5, 12, 24)</label>
-      <input type="text" id="repPisos" placeholder="Vacío = todos los pisos" style="margin:5px 0 12px;">
+      <label style="font-size:.75rem;color:var(--muted);">Pisos (todos marcados = sin filtro)</label>
+      <div id="repPisosChecklist" class="check-grid scroll-grid"></div>
+      <div class="check-grid-tools">
+        <span class="mini-link" id="repPisosTodos">Marcar todos</span>
+        <span class="mini-link" id="repPisosNinguno">Desmarcar todos</span>
+      </div>
 
-      <label style="font-size:.75rem;color:var(--muted);">Línea / Depto específico (opcional, separados por coma)</label>
-      <input type="text" id="repLineas" placeholder="Ej: 06  (toma A-0106, A-0206... de todas las torres/pisos elegidos) o A-0501 exacto" style="margin:5px 0 12px;">
+      <label style="font-size:.75rem;color:var(--muted);">Línea / Depto (todas marcadas = sin filtro)</label>
+      <div id="repLineasChecklist" class="check-grid scroll-grid"></div>
+      <div class="check-grid-tools">
+        <span class="mini-link" id="repLineasTodos">Marcar todas</span>
+        <span class="mini-link" id="repLineasNinguno">Desmarcar todas</span>
+      </div>
 
       <button class="add-btn" id="btnGenerarReporte">🔍 Generar vista previa</button>
 
@@ -323,7 +342,7 @@
 
     <div class="cfg-section">
       <h3>Umbrales de alerta</h3>
-      <p class="hint">Se usan como referencia mínima/máxima general. Además, la app compara cada unidad contra su propio historial de consumo cuando ya tiene al menos 2 lecturas anteriores.</p>
+      <p class="hint">⚠ La detección de anomalías por comparación de lectura anterior/actual está <b>desactivada</b> actualmente. Estos umbrales no tienen efecto mientras esté así — quedan guardados por si se reactiva más adelante.</p>
       <div class="umbral-row">
         <div><label>Consumo mínimo esperado (m³)</label><input type="number" step="0.1" id="umbralMin" value="1"></div>
         <div><label>Consumo máximo esperado (m³)</label><input type="number" step="0.1" id="umbralMax" value="60"></div>
@@ -417,7 +436,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v5.3 (pestaña de Reportes)';
+const APP_VERSION = 'v5.5 (detección de anomalías por consumo desactivada)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -675,6 +694,12 @@ function historialConsumos(torreId, depto, excluirPeriodo){
   return out.slice(0,6);
 }
 function detectarAnomalia(anterior, actual, torreId, depto){
+  // Desactivado a pedido: ya no se compara "lectura anterior" vs "lectura actual"
+  // para marcar anomalías (consumo negativo, cero, fuera de umbral o desvío histórico).
+  // El código anterior queda comentado abajo por si se quiere reactivar más adelante.
+  return null;
+
+  /* --- lógica anterior (desactivada) ---
   if(anterior==null || anterior==='' || actual==null || actual==='') return null;
   const a = parseFloat(anterior), b = parseFloat(actual);
   if(isNaN(a) || isNaN(b)) return null;
@@ -696,6 +721,7 @@ function detectarAnomalia(anterior, actual, torreId, depto){
     }
   }
   return null;
+  --- fin lógica anterior --- */
 }
 
 /* =========================================================
@@ -1664,34 +1690,77 @@ document.getElementById('btnMail').addEventListener('click', ()=>{
    ========================================================= */
 let repFilasActuales = [];
 
-function renderReportes(){
-  document.getElementById('repPeriodo').value = periodo();
-  const wrap = document.getElementById('repTorresChecklist');
-  wrap.innerHTML = CONFIG.torres.map(t=>`
-    <label style="display:flex;align-items:center;gap:5px;">
-      <input type="checkbox" class="rep-torre-chk" value="${t.id}" checked> ${t.nombre}
-    </label>`).join('');
-  document.getElementById('repResumen').style.display = 'none';
+function todasLasLineas(){
+  const numericas = new Set(), especiales = new Set();
+  CONFIG.torres.forEach(t=> t.pisos.forEach(p=> p.unidades.forEach(u=>{
+    const m = u.depto.match(/^[A-D]-\d{2}(\d{2})$/);
+    if(m) numericas.add(m[1]);
+    else especiales.add(u.depto);
+  })));
+  const lista = [...numericas].sort().map(l=>({valor:l, etiqueta:'Línea '+l}));
+  [...especiales].sort().forEach(e=> lista.push({valor:e.toLowerCase(), etiqueta:e}));
+  return lista;
+}
+function todosLosPisos(){
+  const set = new Set();
+  CONFIG.torres.forEach(t=> t.pisos.forEach(p=> set.add(String(p.piso))));
+  return [...set].sort((a,b)=> (parseInt(a)||0)-(parseInt(b)||0));
 }
 
+function renderReportes(){
+  const selPeriodo = document.getElementById('repPeriodo');
+  const periodosDisponibles = getPeriodosDistintos();
+  if(periodosDisponibles.length===0){
+    selPeriodo.innerHTML = `<option value="${periodo()}">${periodo()} (sin lecturas todavía)</option>`;
+  } else {
+    selPeriodo.innerHTML = periodosDisponibles.map(p=>`<option value="${p.periodo}">${p.periodo} (${p.count} registro${p.count===1?'':'s'})</option>`).join('');
+  }
+
+  const wrapT = document.getElementById('repTorresChecklist');
+  wrapT.innerHTML = CONFIG.torres.map(t=>`
+    <label><input type="checkbox" class="rep-torre-chk" value="${t.id}" checked> ${t.nombre}</label>`).join('');
+
+  const wrapP = document.getElementById('repPisosChecklist');
+  wrapP.innerHTML = todosLosPisos().map(p=>`
+    <label><input type="checkbox" class="rep-piso-chk" value="${p}" checked> Piso ${p}</label>`).join('');
+
+  const wrapL = document.getElementById('repLineasChecklist');
+  wrapL.innerHTML = todasLasLineas().map(l=>`
+    <label><input type="checkbox" class="rep-linea-chk" value="${l.valor}" checked> ${l.etiqueta}</label>`).join('');
+
+  document.getElementById('repResumen').style.display = 'none';
+}
+document.getElementById('repPisosTodos').addEventListener('click', ()=> document.querySelectorAll('.rep-piso-chk').forEach(c=>c.checked=true));
+document.getElementById('repPisosNinguno').addEventListener('click', ()=> document.querySelectorAll('.rep-piso-chk').forEach(c=>c.checked=false));
+document.getElementById('repLineasTodos').addEventListener('click', ()=> document.querySelectorAll('.rep-linea-chk').forEach(c=>c.checked=true));
+document.getElementById('repLineasNinguno').addEventListener('click', ()=> document.querySelectorAll('.rep-linea-chk').forEach(c=>c.checked=false));
+
 function filasReporte(){
-  const periodoSel = document.getElementById('repPeriodo').value.trim() || periodo();
+  const periodoSel = document.getElementById('repPeriodo').value;
+
   const torresChk = [...document.querySelectorAll('.rep-torre-chk')];
   const torresMarcadas = torresChk.filter(c=>c.checked).map(c=>c.value);
-  const todasMarcadas = torresMarcadas.length === torresChk.length; // ninguna excluida = sin filtro
-  const pisosSel = document.getElementById('repPisos').value.split(',').map(s=>s.trim()).filter(Boolean);
-  const lineasSel = document.getElementById('repLineas').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  const torresSinFiltro = torresMarcadas.length === torresChk.length;
+
+  const pisosChk = [...document.querySelectorAll('.rep-piso-chk')];
+  const pisosMarcados = pisosChk.filter(c=>c.checked).map(c=>c.value);
+  const pisosSinFiltro = pisosMarcados.length === pisosChk.length;
+
+  const lineasChk = [...document.querySelectorAll('.rep-linea-chk')];
+  const lineasMarcadas = lineasChk.filter(c=>c.checked).map(c=>c.value);
+  const lineasSinFiltro = lineasMarcadas.length === lineasChk.length;
 
   const rows = [];
   for(const t of CONFIG.torres){
-    if(!todasMarcadas && !torresMarcadas.includes(t.id)) continue;
+    if(!torresSinFiltro && !torresMarcadas.includes(t.id)) continue;
     for(const p of t.pisos){
-      if(pisosSel.length && !pisosSel.includes(String(p.piso))) continue;
+      if(!pisosSinFiltro && !pisosMarcados.includes(String(p.piso))) continue;
       for(const u of p.unidades){
-        if(lineasSel.length){
+        if(!lineasSinFiltro){
           const depLower = u.depto.toLowerCase();
-          const coincide = lineasSel.some(l => depLower === l || depLower.endsWith(l));
-          if(!coincide) continue;
+          const m = u.depto.match(/^[A-D]-\d{2}(\d{2})$/);
+          const lineaUnidad = m ? m[1] : depLower;
+          if(!lineasMarcadas.includes(lineaUnidad)) continue;
         }
         const key = unitKeyFor(periodoSel, t.id, p.piso, u.depto);
         const reg = LECTURAS[key];
@@ -1738,7 +1807,7 @@ document.getElementById('btnGenerarReporte').addEventListener('click', ()=>{
 });
 
 function nombreArchivoReporte(ext){
-  const periodoSel = (document.getElementById('repPeriodo').value.trim() || periodo()).replace(/\s+/g,'_');
+  const periodoSel = document.getElementById('repPeriodo').value.replace(/\s+/g,'_');
   return `Reporte_JDVM_${periodoSel}_${new Date().toISOString().slice(0,10)}.${ext}`;
 }
 
@@ -1762,7 +1831,7 @@ document.getElementById('btnRepPdf').addEventListener('click', ()=>{
 document.getElementById('btnRepMail').addEventListener('click', ()=>{
   if(repFilasActuales.length===0){ toast('Primero genera la vista previa'); return; }
   const dest = document.getElementById('emailDestino').value.trim();
-  const periodoSel = document.getElementById('repPeriodo').value.trim() || periodo();
+  const periodoSel = document.getElementById('repPeriodo').value;
   let consumoTotal = 0;
   repFilasActuales.forEach(r=>{ if(typeof r['Variación (m³)']==='number') consumoTotal += r['Variación (m³)']; });
   let body = `Reporte de mediciones - Comunidad JDVM\nPeriodo: ${periodoSel}\nUnidades incluidas: ${repFilasActuales.length}\nConsumo total: ${consumoTotal.toFixed(1)} m³\n\n`;
