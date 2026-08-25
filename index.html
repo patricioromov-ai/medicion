@@ -221,6 +221,7 @@
   <nav class="tabs">
     <button class="active" data-tab="lecturas">Lecturas</button>
     <button data-tab="anomalias">Anomalías<span class="tab-badge" id="badgeAnom" style="display:none;">0</span></button>
+    <button data-tab="reportes" id="navReportes" hidden>Reportes</button>
     <button data-tab="config" id="navConfig" hidden>Configuración</button>
   </nav>
 </header>
@@ -261,6 +262,46 @@
       <span style="font-size:.78rem;color:var(--muted);" id="anomCountLbl">0 anomalías</span>
     </div>
     <div id="anomList"></div>
+  </section>
+
+  <!-- TAB REPORTES (solo admin) -->
+  <section id="tab-reportes" style="display:none;">
+    <div class="cfg-section">
+      <h3>Consolidado / reporte de mediciones</h3>
+      <p class="hint">Filtra por lo que necesites — una torre, un piso, una "línea" de deptos (ej. todos los 06 de todas las torres), deptos específicos, o todo el condominio junto — y descarga o envía el resultado.</p>
+
+      <label style="font-size:.75rem;color:var(--muted);">Periodo</label>
+      <input type="text" id="repPeriodo" style="margin:5px 0 12px;">
+
+      <label style="font-size:.75rem;color:var(--muted);">Torres (vacío = todas)</label>
+      <div id="repTorresChecklist" style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 12px;font-size:.85rem;"></div>
+
+      <label style="font-size:.75rem;color:var(--muted);">Pisos (opcional, separados por coma — ej: 5, 12, 24)</label>
+      <input type="text" id="repPisos" placeholder="Vacío = todos los pisos" style="margin:5px 0 12px;">
+
+      <label style="font-size:.75rem;color:var(--muted);">Línea / Depto específico (opcional, separados por coma)</label>
+      <input type="text" id="repLineas" placeholder="Ej: 06  (toma A-0106, A-0206... de todas las torres/pisos elegidos) o A-0501 exacto" style="margin:5px 0 12px;">
+
+      <button class="add-btn" id="btnGenerarReporte">🔍 Generar vista previa</button>
+
+      <div id="repResumen" style="display:none;margin-top:14px;">
+        <div class="summary-bar">
+          <div class="summary-card"><div class="num" id="repNumUnidades">0</div><div class="lbl">Unidades</div></div>
+          <div class="summary-card"><div class="num" id="repConsumoTotal">0</div><div class="lbl">Consumo total m³</div></div>
+          <div class="summary-card"><div class="num" id="repPromedio">0</div><div class="lbl">Promedio m³</div></div>
+          <div class="summary-card" id="repCardAnom"><div class="num" id="repNumAnom">0</div><div class="lbl">Anomalías</div></div>
+        </div>
+        <div class="import-result" id="repDetalle" style="display:block;"></div>
+
+        <div class="unit-tools" style="margin-top:12px;">
+          <div class="btn-mini has-photo" id="btnRepExcel">📊 Descargar Excel</div>
+          <div class="btn-mini has-photo" id="btnRepPdf">🖨️ PDF / Imprimir</div>
+        </div>
+        <div class="unit-tools" style="margin-top:8px;">
+          <div class="btn-mini has-photo" id="btnRepMail" style="flex:1;">✉️ Enviar por correo</div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- TAB CONFIG (solo admin) -->
@@ -376,7 +417,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v5.2 (importación de estructura completa)';
+const APP_VERSION = 'v5.3 (pestaña de Reportes)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -573,6 +614,7 @@ function enterApp(){
   document.getElementById('userNombre').textContent = currentUser.nombre;
   document.getElementById('userRol').textContent = currentUser.rol==='admin' ? 'Administrador' : 'Tomador de registro';
   document.getElementById('navConfig').hidden = currentUser.rol!=='admin';
+  document.getElementById('navReportes').hidden = currentUser.rol!=='admin';
   if(currentUser.rol!=='admin' && document.getElementById('tab-config').style.display!=='none'){
     document.querySelector('nav.tabs button[data-tab=lecturas]').click();
   }
@@ -667,8 +709,10 @@ document.querySelectorAll('nav.tabs button').forEach(btn=>{
     const tab = btn.dataset.tab;
     document.getElementById('tab-lecturas').style.display = tab==='lecturas' ? 'block':'none';
     document.getElementById('tab-anomalias').style.display = tab==='anomalias' ? 'block':'none';
+    document.getElementById('tab-reportes').style.display = tab==='reportes' ? 'block':'none';
     document.getElementById('tab-config').style.display = tab==='config' ? 'block':'none';
     if(tab==='config' && esAdmin()) renderConfig();
+    if(tab==='reportes' && esAdmin()) renderReportes();
     if(tab==='anomalias') renderAnomalias();
   });
 });
@@ -1611,6 +1655,122 @@ document.getElementById('btnMail').addEventListener('click', ()=>{
   rows.forEach(r=>{ body += `${r.Torre} · Piso ${r.Piso} · Depto ${r.Depto} (${r.Medidor}) [${r.Estado}]: anterior ${r['Lectura anterior']} → actual ${r['Lectura actual']} = ${r['Variación (m³)']} m³${r['Anomalía']?' ⚠ '+r['Anomalía']:''} — reg. ${r['Registrado por']}\n`; });
   body += `\n---\nEste correo se generó desde la app de Lecturas JDVM. Adjunta manualmente el archivo Excel exportado si lo necesitas, ya que el navegador no permite adjuntarlo automáticamente.`;
   const url = `mailto:${encodeURIComponent(dest)}?subject=${encodeURIComponent('Lecturas de medidores JDVM - '+periodo())}&body=${encodeURIComponent(body)}`;
+  window.location.href = url;
+  toast('Abriendo tu app de correo…');
+});
+
+/* =========================================================
+   REPORTES (consolidado con filtros: torre / piso / línea / condominio completo)
+   ========================================================= */
+let repFilasActuales = [];
+
+function renderReportes(){
+  document.getElementById('repPeriodo').value = periodo();
+  const wrap = document.getElementById('repTorresChecklist');
+  wrap.innerHTML = CONFIG.torres.map(t=>`
+    <label style="display:flex;align-items:center;gap:5px;">
+      <input type="checkbox" class="rep-torre-chk" value="${t.id}" checked> ${t.nombre}
+    </label>`).join('');
+  document.getElementById('repResumen').style.display = 'none';
+}
+
+function filasReporte(){
+  const periodoSel = document.getElementById('repPeriodo').value.trim() || periodo();
+  const torresChk = [...document.querySelectorAll('.rep-torre-chk')];
+  const torresMarcadas = torresChk.filter(c=>c.checked).map(c=>c.value);
+  const todasMarcadas = torresMarcadas.length === torresChk.length; // ninguna excluida = sin filtro
+  const pisosSel = document.getElementById('repPisos').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const lineasSel = document.getElementById('repLineas').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+
+  const rows = [];
+  for(const t of CONFIG.torres){
+    if(!todasMarcadas && !torresMarcadas.includes(t.id)) continue;
+    for(const p of t.pisos){
+      if(pisosSel.length && !pisosSel.includes(String(p.piso))) continue;
+      for(const u of p.unidades){
+        if(lineasSel.length){
+          const depLower = u.depto.toLowerCase();
+          const coincide = lineasSel.some(l => depLower === l || depLower.endsWith(l));
+          if(!coincide) continue;
+        }
+        const key = unitKeyFor(periodoSel, t.id, p.piso, u.depto);
+        const reg = LECTURAS[key];
+        if(!reg) continue;
+        rows.push(filaParaSheets({...t, __periodo:periodoSel}, p.piso, u, reg));
+      }
+    }
+  }
+  return rows;
+}
+
+document.getElementById('btnGenerarReporte').addEventListener('click', ()=>{
+  repFilasActuales = filasReporte();
+  const resumenBox = document.getElementById('repResumen');
+  if(repFilasActuales.length===0){
+    resumenBox.style.display = 'block';
+    document.getElementById('repNumUnidades').textContent = '0';
+    document.getElementById('repConsumoTotal').textContent = '0';
+    document.getElementById('repPromedio').textContent = '0';
+    document.getElementById('repNumAnom').textContent = '0';
+    document.getElementById('repCardAnom').classList.remove('warncard');
+    document.getElementById('repDetalle').textContent = 'No se encontraron lecturas guardadas con estos filtros para ese periodo.';
+    return;
+  }
+  let consumoTotal = 0, conConsumo = 0, anomalias = 0, sinAcceso=0, danados=0, deshabitados=0;
+  repFilasActuales.forEach(r=>{
+    if(typeof r['Variación (m³)']==='number'){ consumoTotal += r['Variación (m³)']; conConsumo++; }
+    if(r['Anomalía']) anomalias++;
+    if(r.Estado==='Sin acceso') sinAcceso++;
+    if(r.Estado==='Medidor dañado') danados++;
+    if(r.Estado==='Deshabitado / sin residente') deshabitados++;
+  });
+  const promedio = conConsumo ? consumoTotal/conConsumo : 0;
+  resumenBox.style.display = 'block';
+  document.getElementById('repNumUnidades').textContent = repFilasActuales.length;
+  document.getElementById('repConsumoTotal').textContent = consumoTotal.toFixed(1);
+  document.getElementById('repPromedio').textContent = promedio.toFixed(2);
+  document.getElementById('repNumAnom').textContent = anomalias;
+  document.getElementById('repCardAnom').classList.toggle('warncard', anomalias>0);
+  document.getElementById('repDetalle').textContent =
+    `Estados: ${sinAcceso} sin acceso, ${danados} medidor dañado, ${deshabitados} deshabitado.` +
+    (anomalias>0 ? ` ⚠ ${anomalias} unidad(es) con anomalía dentro de esta selección.` : ' Sin anomalías en esta selección.');
+  toast(`✓ ${repFilasActuales.length} unidad(es) encontradas`);
+});
+
+function nombreArchivoReporte(ext){
+  const periodoSel = (document.getElementById('repPeriodo').value.trim() || periodo()).replace(/\s+/g,'_');
+  return `Reporte_JDVM_${periodoSel}_${new Date().toISOString().slice(0,10)}.${ext}`;
+}
+
+document.getElementById('btnRepExcel').addEventListener('click', ()=>{
+  if(repFilasActuales.length===0){ toast('Primero genera la vista previa'); return; }
+  const ws = XLSX.utils.json_to_sheet(repFilasActuales);
+  convertirColumnaFecha(ws, repFilasActuales, 'Fecha registro');
+  ws['!cols'] = [{wch:12},{wch:12},{wch:6},{wch:8},{wch:12},{wch:14},{wch:14},{wch:14},{wch:12},{wch:30},{wch:28},{wch:22},{wch:16},{wch:19}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Reporte');
+  XLSX.writeFile(wb, nombreArchivoReporte('xlsx'));
+  toast('Excel descargado ✓');
+});
+
+document.getElementById('btnRepPdf').addEventListener('click', ()=>{
+  if(repFilasActuales.length===0){ toast('Primero genera la vista previa'); return; }
+  construirTablaImpresion(repFilasActuales);
+  window.print();
+});
+
+document.getElementById('btnRepMail').addEventListener('click', ()=>{
+  if(repFilasActuales.length===0){ toast('Primero genera la vista previa'); return; }
+  const dest = document.getElementById('emailDestino').value.trim();
+  const periodoSel = document.getElementById('repPeriodo').value.trim() || periodo();
+  let consumoTotal = 0;
+  repFilasActuales.forEach(r=>{ if(typeof r['Variación (m³)']==='number') consumoTotal += r['Variación (m³)']; });
+  let body = `Reporte de mediciones - Comunidad JDVM\nPeriodo: ${periodoSel}\nUnidades incluidas: ${repFilasActuales.length}\nConsumo total: ${consumoTotal.toFixed(1)} m³\n\n`;
+  const limite = 200;
+  repFilasActuales.slice(0, limite).forEach(r=>{ body += `${r.Torre} · Piso ${r.Piso} · Depto ${r.Depto}: ${r['Variación (m³)']} m³${r['Anomalía']?' ⚠':''}\n`; });
+  if(repFilasActuales.length > limite) body += `\n… y ${repFilasActuales.length - limite} unidad(es) más — descarga el Excel para el detalle completo.\n`;
+  body += `\n---\nAdjunta manualmente el Excel descargado, ya que el navegador no permite adjuntarlo automáticamente.`;
+  const url = `mailto:${encodeURIComponent(dest)}?subject=${encodeURIComponent('Reporte JDVM - '+periodoSel)}&body=${encodeURIComponent(body)}`;
   window.location.href = url;
   toast('Abriendo tu app de correo…');
 });
