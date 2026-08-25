@@ -458,7 +458,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v6.2 (bloquea reingreso de lecturas ya tomadas)';
+const APP_VERSION = 'v6.3 (verifica con el servidor antes de guardar, evita choques entre dispositivos)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -627,6 +627,22 @@ function reconstruirLecturasDesdeFilas(rows){
     };
   });
   return out;
+}
+
+/** Trae el estado real más reciente desde Sheets y lo fusiona con lo que hay en memoria.
+    Nunca pisa un registro local que esta pestaña guardó pero todavía no confirmó (sincronizado:false),
+    para no perder algo que está a punto de subir. Todo lo demás se actualiza con lo del servidor. */
+async function refrescarLecturasDesdeServidor(){
+  try{
+    const lec = await apiCall('lecturas_get');
+    if(!lec.ok || !lec.rows) return false;
+    const fresco = reconstruirLecturasDesdeFilas(lec.rows);
+    Object.keys(fresco).forEach(k=>{
+      const local = LECTURAS[k];
+      if(!local || local.sincronizado!==false) LECTURAS[k] = fresco[k];
+    });
+    return true;
+  }catch(e){ return false; }
 }
 function toast(msg, ms=2200){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),ms); }
 function etiquetaEstado(estado){ return (ESTADOS[estado]||ESTADOS.leida).label; }
@@ -798,11 +814,16 @@ function populatePisoSelect(){
   sel.innerHTML = torre.pisos.map(p=>`<option value="${p.piso}">Piso ${p.piso}</option>`).join('');
   if(currentPiso==null || !torre.pisos.find(p=>p.piso==currentPiso)) currentPiso = torre.pisos[0].piso;
   sel.value = currentPiso;
-  renderUnitList();
+  refrescarYRenderizar();
+}
+async function refrescarYRenderizar(){
+  renderUnitList(); // muestra de inmediato lo que ya se tenía, sin esperar la red
+  const ok = await refrescarLecturasDesdeServidor();
+  if(ok) renderUnitList(); // y actualiza apenas llega la confirmación del servidor
 }
 document.getElementById('selTorre').addEventListener('change', e=>{ currentTorre=e.target.value; currentPiso=null; populatePisoSelect(); });
-document.getElementById('selPiso').addEventListener('change', e=>{ currentPiso=e.target.value; renderUnitList(); });
-document.getElementById('periodoInput').addEventListener('change', ()=>{ renderUnitList(); refreshAnomBadge(); });
+document.getElementById('selPiso').addEventListener('change', e=>{ currentPiso=e.target.value; refrescarYRenderizar(); });
+document.getElementById('periodoInput').addEventListener('change', ()=>{ refrescarYRenderizar(); refreshAnomBadge(); });
 
 /* =========================================================
    NAVEGAR AL SIGUIENTE PISO PENDIENTE
@@ -1076,6 +1097,7 @@ function attachUnitEvents(){
     if(btnCorregir) btnCorregir.addEventListener('click', ()=>{
       inActual.disabled = false;
       inActual.focus();
+      card.dataset.corrigiendo = 'true';
       const msg = card.querySelector('.ya-tomado-msg');
       if(msg) msg.remove();
     });
@@ -1164,8 +1186,23 @@ async function guardarUnaTarjeta(card){
   if(periodoCerrado(periodo())){ toast('🔒 Este periodo está cerrado, no se puede guardar'); return; }
   if(card.dataset.editable === 'false'){ toast('🔒 No puedes editar este registro'); return; }
   const btn = card.querySelector('.b-guardar');
-  if(btn){ btn.textContent = '💾 Guardando…'; btn.style.pointerEvents='none'; }
-  const { key, depto, anom, valido, sinCambios } = datosDesdeCard(card);
+  const key = card.dataset.key;
+  const depto0 = key.split('|')[3];
+  if(btn){ btn.textContent = '🔎 Verificando…'; btn.style.pointerEvents='none'; }
+
+  // Revisa contra el servidor justo antes de guardar, por si otro dispositivo
+  // ya registró este mismo depto mientras se estaba escribiendo aquí.
+  await refrescarLecturasDesdeServidor();
+  const yaLoTomaronEnOtroLado = !card.dataset.corrigiendo && LECTURAS[key] && LECTURAS[key].actual!=null;
+  if(yaLoTomaronEnOtroLado){
+    toast(`⚠ Depto ${depto0}: otro dispositivo YA registró este medidor mientras escribías. Se actualizó la pantalla con ese dato.`, 5000);
+    if(btn){ btn.textContent = '💾 Guardar'; btn.style.pointerEvents=''; }
+    renderUnitList();
+    return;
+  }
+
+  if(btn){ btn.textContent = '💾 Guardando…'; }
+  const { depto, anom, valido, sinCambios } = datosDesdeCard(card);
   if(sinCambios){
     toast(`Escribe una lectura para el depto ${depto} antes de guardar`, 2500);
     if(btn){ btn.textContent = '💾 Guardar'; btn.style.pointerEvents=''; }
@@ -1192,21 +1229,30 @@ async function guardarUnaTarjeta(card){
 
 async function collectAndSave(){
   if(periodoCerrado(periodo())){ toast('🔒 Este periodo está cerrado, no se puede guardar'); return; }
+  toast('🔎 Verificando con el servidor antes de guardar…', 1500);
+  await refrescarLecturasDesdeServidor();
+
   const cards = document.querySelectorAll('.unit-card');
-  let guardadas = 0, bloqueadas = 0, invalidas = 0;
+  let guardadas = 0, bloqueadas = 0, invalidas = 0, conflictos = 0;
   const anomalias = [];
   const invalidasDepto = [];
+  const conflictosDepto = [];
   const clavesGuardadas = [];
   cards.forEach(card=>{
     if(card.dataset.editable === 'false'){ bloqueadas++; return; }
-    const { key, depto, guardada, anom, valido, sinCambios } = datosDesdeCard(card);
-    if(sinCambios) return; // nada escrito en este depto: se deja tal como estaba
-    if(!valido){ invalidas++; invalidasDepto.push(depto); return; }
-    if(guardada) guardadas++;
-    clavesGuardadas.push(key);
-    if(anom) anomalias.push({depto, ...anom});
+    const key = card.dataset.key;
+    const depto = key.split('|')[3];
+    const inActualVal = card.querySelector('.in-actual').value;
+    const yaLoTomaronEnOtroLado = inActualVal!=='' && !card.dataset.corrigiendo && LECTURAS[key] && LECTURAS[key].actual!=null;
+    if(yaLoTomaronEnOtroLado){ conflictos++; conflictosDepto.push(depto); return; }
+    const resultado = datosDesdeCard(card);
+    if(resultado.sinCambios) return; // nada escrito en este depto: se deja tal como estaba
+    if(!resultado.valido){ invalidas++; invalidasDepto.push(depto); return; }
+    if(resultado.guardada) guardadas++;
+    clavesGuardadas.push(resultado.key);
+    if(resultado.anom) anomalias.push({depto, ...resultado.anom});
   });
-  if(clavesGuardadas.length===0 && invalidas===0){
+  if(clavesGuardadas.length===0 && invalidas===0 && conflictos===0){
     toast('No escribiste ninguna lectura nueva en este piso');
     return;
   }
@@ -1215,7 +1261,12 @@ async function collectAndSave(){
   if(sincronizado) clavesGuardadas.forEach(k=>{ if(LECTURAS[k]) LECTURAS[k].sincronizado = true; });
 
   const banner = document.getElementById('alertBanner');
-  if(!sincronizado){
+  if(conflictos>0){
+    banner.style.display = 'block';
+    banner.innerHTML = `<b>⚠ ${conflictos} depto(s) YA HABÍAN SIDO REGISTRADOS por otro dispositivo</b> mientras escribías, así que no se sobrescribieron — se actualizó la pantalla con el dato real:
+      <ul>${conflictosDepto.map(d=>`<li>Depto ${d}</li>`).join('')}</ul>` + (guardadas>0?`<br>El resto (${guardadas}) sí se guardó normalmente.`:'');
+    toast(`⚠ ${conflictos} depto(s) ya registrados por otro dispositivo — revisa el aviso`, 4500);
+  } else if(!sincronizado){
     banner.style.display = 'block';
     banner.innerHTML = `<b>⚠ Se guardaron ${guardadas} lecturas EN EL CELULAR pero NO llegaron a Google Sheets todavía</b> (sin señal o error de conexión). No cierres ni recargues la app — se va a reintentar solo apenas vuelva la conexión.`;
     toast(`⚠ ${guardadas} lecturas guardadas pero SIN sincronizar — no cierres la app`, 5000);
