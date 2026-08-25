@@ -103,6 +103,7 @@
   select.in-estado{margin-bottom:8px;font-size:.85rem;padding:8px;}
   .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;}
   .field-grid label{font-size:.68rem;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px;}
+  .lectura-label{font-size:.68rem;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px;}
   .formato-hint{font-size:.66rem;color:var(--muted);margin:-4px 0 8px;}
   .in-anterior.invalido, .in-actual.invalido{border-color:var(--red) !important;background:var(--red-soft) !important;}
   .formato-error{font-size:.7rem;color:var(--red);font-weight:600;margin:-4px 0 8px;}
@@ -439,7 +440,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v5.6 (formato de lectura ###.### validado)';
+const APP_VERSION = 'v5.7 (lectura anterior oculta en pantalla)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -945,10 +946,9 @@ function renderUnitList(){
       <select class="in-estado" ${dis}>
         ${Object.keys(ESTADOS).map(k=>`<option value="${k}" ${estado===k?'selected':''}>${ESTADOS[k].label}</option>`).join('')}
       </select>
-      <div class="field-grid">
-        <div><label>Lectura anterior</label><input type="text" inputmode="decimal" class="in-anterior" value="${anteriorVal}" placeholder="003.847" ${disLectura}></div>
-        <div><label>Lectura actual</label><input type="text" inputmode="decimal" class="in-actual" value="${actualVal}" placeholder="003.847" ${disLectura}></div>
-      </div>
+      <div style="display:none;"><input type="text" class="in-anterior" value="${anteriorVal}"></div>
+      <label class="lectura-label">Lectura actual</label>
+      <input type="text" inputmode="decimal" class="in-actual" value="${actualVal}" placeholder="003.847" ${disLectura}>
       <div class="formato-hint">Formato: ###.### (o ##.### / 0) — igual a como se ve en el medidor</div>
       <div class="consumo-line ${anom?'alerta':''}">
         <span>Consumo del periodo</span>
@@ -1004,7 +1004,7 @@ function attachUnitEvents(){
         const campo = document.createElement('div');
         campo.className = 'formato-error';
         campo.textContent = '⚠ Formato inválido — usa ###.### (o ##.### / 0)';
-        inActual.closest('.field-grid').insertAdjacentElement('afterend', campo);
+        inActual.insertAdjacentElement('afterend', campo);
       }
 
       if(estado==='leida'){
