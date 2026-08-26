@@ -461,7 +461,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v6.9 (nunca sobrescribe la estructura sola — protección crítica)';
+const APP_VERSION = 'v7.0 (reintenta y avisa si fallan las lecturas al cargar)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -480,6 +480,7 @@ let COLA_PENDIENTE = [];
 let currentUser = null;
 let currentTorre = null, currentPiso = null, currentUnitKeyForFoto = null;
 let estadoServidorOk = false;
+let lecturasCargadasOk = false;
 
 async function apiCall(action, extra={}){
   const resp = await fetch(SHEETS_URL, {
@@ -545,12 +546,19 @@ async function loadState(){
     setTimeout(()=> toast('🔴 No se pudo conectar con Sheets para cargar la configuración. Se está usando una estructura de ejemplo TEMPORAL — nada se ha guardado. Revisa tu conexión y vuelve a intentar antes de trabajar.', 8000), 500);
   }
 
-  try{
-    const lec = await apiCall('lecturas_get');
-    LECTURAS = (lec.ok && lec.rows) ? reconstruirLecturasDesdeFilas(lec.rows) : {};
-  }catch(e){
-    console.error('No se pudieron cargar las lecturas desde Sheets:', e);
-    LECTURAS = {};
+  lecturasCargadasOk = false;
+  for(let intento=1; intento<=2 && !lecturasCargadasOk; intento++){
+    try{
+      const lec = await apiCall('lecturas_get');
+      if(lec.ok && lec.rows){ LECTURAS = reconstruirLecturasDesdeFilas(lec.rows); lecturasCargadasOk = true; }
+      else { LECTURAS = {}; }
+    }catch(e){
+      console.error(`No se pudieron cargar las lecturas desde Sheets (intento ${intento}):`, e);
+      LECTURAS = {};
+    }
+  }
+  if(!lecturasCargadasOk){
+    setTimeout(()=> toast('🔴 No se pudieron cargar las lecturas guardadas — puede que tu navegador (ej. Brave, algún bloqueador) esté interfiriendo con la conexión. Todo va a aparecer como "disponible" aunque ya esté tomado. Prueba recargar, o revisa Configuración → "Recargar todo desde Sheets".', 9000), 800);
   }
 
   document.getElementById('umbralMin').value = UMBRALES.min;
@@ -562,7 +570,13 @@ async function loadState(){
 function actualizarEstadoConexionBD(){
   const box = document.getElementById('sheetsUrlStatus');
   if(!box) return;
-  box.textContent = estadoServidorOk ? '🟢 Conectado a Google Sheets.' : '🔴 Sin conexión con la base de datos — revisa tu internet. Mientras tanto, la app funciona con datos por defecto y nada quedará guardado.';
+  if(!estadoServidorOk){
+    box.textContent = '🔴 Sin conexión con la base de datos — revisa tu internet. Mientras tanto, la app funciona con datos por defecto y nada quedará guardado.';
+  } else if(!lecturasCargadasOk){
+    box.textContent = '🟡 Conectado, pero no se pudieron cargar las lecturas guardadas. Todo puede aparecer como "disponible" aunque ya se haya tomado — usa "Recargar todo desde Sheets" antes de seguir.';
+  } else {
+    box.textContent = '🟢 Conectado a Google Sheets.';
+  }
 }
 
 function avisarErrorGuardado(err){
