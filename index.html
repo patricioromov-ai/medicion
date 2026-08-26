@@ -461,7 +461,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v6.8 (lecturas como texto, evita coma decimal regional)';
+const APP_VERSION = 'v6.9 (nunca sobrescribe la estructura sola — protección crítica)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -531,15 +531,18 @@ async function loadState(){
       PERIODOS_CERRADOS = est.estado.periodosCerrados || [];
       document.getElementById('emailDestino').value = est.estado.emailDestino || '';
     } else {
-      // primera vez que se usa esta hoja: sembrar con los valores por defecto
+      // No se encontró configuración guardada en el servidor. NUNCA se sobrescribe
+      // sola — eso fue justo lo que borró la estructura real una vez. Se usan valores
+      // de ejemplo solo en esta sesión (nada se guarda) y se avisa bien visible.
       CONFIG = DEFAULT_CONFIG; USERS = DEFAULT_USERS; UMBRALES = {min:1,max:60,desvio:50}; PERIODOS_CERRADOS = [];
-      await saveEstado();
+      setTimeout(()=> toast('⚠ No se encontró configuración guardada en el servidor. Se está usando una estructura de ejemplo TEMPORAL — nada se ha guardado. Si tu estructura real debería estar ahí, avisa antes de tocar nada más.', 8000), 500);
     }
     estadoServidorOk = true;
   }catch(e){
     console.error('No se pudo cargar el estado desde Sheets:', e);
     CONFIG = DEFAULT_CONFIG; USERS = DEFAULT_USERS; UMBRALES = {min:1,max:60,desvio:50}; PERIODOS_CERRADOS = [];
     estadoServidorOk = false;
+    setTimeout(()=> toast('🔴 No se pudo conectar con Sheets para cargar la configuración. Se está usando una estructura de ejemplo TEMPORAL — nada se ha guardado. Revisa tu conexión y vuelve a intentar antes de trabajar.', 8000), 500);
   }
 
   try{
@@ -564,13 +567,19 @@ function actualizarEstadoConexionBD(){
 
 function avisarErrorGuardado(err){
   console.error('Error de guardado:', err);
-  toast('⚠ No se pudo guardar en Sheets. Revisa tu conexión — el cambio se reintentará, pero no cierres la app hasta confirmar.', 5000);
+  const msg = (err && err.message) || '';
+  if(msg.includes('Rechazado por seguridad')){
+    toast('🛡️ ' + msg, 9000);
+  } else {
+    toast('⚠ No se pudo guardar en Sheets. Revisa tu conexión — el cambio se reintentará, pero no cierres la app hasta confirmar.', 5000);
+  }
 }
 
 /** Guarda TODO el estado (config, usuarios, umbrales, periodos, correo) como un solo bloque en la hoja "AppState". */
-async function saveEstado(){
+async function saveEstado(opts){
+  const forzar = opts && opts.forzar;
   try{
-    const r = await apiCall('estado_set', { estado: {
+    const r = await apiCall('estado_set', { forzar, estado: {
       config: CONFIG, users: USERS, umbrales: UMBRALES, periodosCerrados: PERIODOS_CERRADOS,
       emailDestino: document.getElementById('emailDestino').value
     }});
@@ -1579,7 +1588,7 @@ document.getElementById('importEstructuraFile').addEventListener('change', (e)=>
       });
 
       CONFIG = { torres: nuevasTorres };
-      await saveConfig();
+      await saveEstado({forzar:true});
       populateTorreSelect();
       renderConfig();
 
