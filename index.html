@@ -461,7 +461,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v6.5 (ocultar tomadas activado por defecto)';
+const APP_VERSION = 'v6.6 (normaliza claves Piso/Depto al reconstruir desde Sheets)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -599,16 +599,22 @@ async function saveLecturas(){ /* no-op: la hoja "Lecturas" es la fuente de verd
 async function saveCola(){ /* la cola pendiente vive solo en memoria mientras la pestaña esté abierta */ }
 
 function periodo(){ return document.getElementById('periodoInput').value.trim() || 'Sin periodo'; }
-function unitKey(torreId, piso, depto){ return `${periodo()}|${torreId}|${piso}|${depto}`; }
-function unitKeyFor(per, torreId, piso, depto){ return `${per}|${torreId}|${piso}|${depto}`; }
+function normClave(v){ return String(v==null?'':v).trim(); }
+function unitKey(torreId, piso, depto){ return `${periodo()}|${normClave(torreId)}|${normClave(piso)}|${normClave(depto)}`; }
+function unitKeyFor(per, torreId, piso, depto){ return `${normClave(per)}|${normClave(torreId)}|${normClave(piso)}|${normClave(depto)}`; }
 
 function reconstruirLecturasDesdeFilas(rows){
   const out = {};
+  const descartadasDetalle = [];
   rows.forEach(row=>{
     const torreId = findTorreIdByName(row['Torre']);
-    if(!torreId || !row['Periodo'] || !row['Depto']) return;
-    const piso = String(row['Piso']);
-    const depto = String(row['Depto']);
+    if(!torreId || !row['Periodo'] || !row['Depto']){
+      descartadasDetalle.push(row);
+      console.warn('Fila de Sheets no se pudo reconstruir (revisar Torre/Periodo/Depto):', row);
+      return;
+    }
+    const piso = normClave(row['Piso']);
+    const depto = normClave(row['Depto']);
     const key = unitKeyFor(row['Periodo'], torreId, piso, depto);
     const estadoLabel = row['Estado'];
     const estadoKey = Object.keys(ESTADOS).find(k=>ESTADOS[k].label===estadoLabel) || 'leida';
@@ -629,6 +635,10 @@ function reconstruirLecturasDesdeFilas(rows){
       revisada: row['Revisada'] === 'Sí'
     };
   });
+  if(descartadasDetalle.length>0){
+    console.warn(`⚠ ${descartadasDetalle.length} fila(s) de la hoja Lecturas no se pudieron reconstruir:`, descartadasDetalle);
+    setTimeout(()=> toast(`⚠ ${descartadasDetalle.length} fila(s) de datos guardados no se pudieron leer correctamente. Avisa al administrador — revisa la consola o la hoja de Sheets.`, 5000), 800);
+  }
   return out;
 }
 
