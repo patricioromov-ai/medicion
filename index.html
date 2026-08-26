@@ -427,6 +427,14 @@
       <div class="import-result" id="syncStatus" style="display:block;margin-top:10px;">Sin sincronizar todavía.</div>
     </div>
 
+    <div class="cfg-section">
+      <h3>🔍 Diagnóstico de un depto</h3>
+      <p class="hint">Escribe un código de depto (ej. A-0002) para ver exactamente qué está comparando la app en este dispositivo — útil cuando algo debería aparecer "tomado" y no aparece.</p>
+      <input type="text" id="diagDepto" placeholder="Ej: A-0002">
+      <button class="add-btn" id="btnDiagnosticar">Diagnosticar</button>
+      <div class="import-result" id="diagResultado" style="display:none;white-space:pre-wrap;"></div>
+    </div>
+
     <div style="text-align:center;font-size:.7rem;color:var(--muted);padding:6px 0 20px;">
       App: <span id="cfgAppVersion"></span> · Backend esperado: <span id="cfgBackendEsperado"></span> · Backend conectado: <span id="cfgBackendVersion">—</span>
     </div>
@@ -461,7 +469,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v7.0 (reintenta y avisa si fallan las lecturas al cargar)';
+const APP_VERSION = 'v7.1 (herramienta de diagnóstico de depto)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -1831,6 +1839,46 @@ document.getElementById('btnRecargar').addEventListener('click', async ()=>{
   populateTorreSelect();
   renderUnitList(); refreshAnomBadge();
   toast('✓ Datos recargados desde Sheets');
+});
+
+document.getElementById('btnDiagnosticar').addEventListener('click', ()=>{
+  const deptoBuscado = document.getElementById('diagDepto').value.trim();
+  const box = document.getElementById('diagResultado');
+  box.style.display = 'block';
+  if(!deptoBuscado){ box.textContent = 'Escribe un código de depto primero.'; return; }
+  const depNorm = normClave(deptoBuscado);
+
+  let lineas = [];
+  lineas.push(`Periodo actual (arriba de la pantalla): "${periodo()}"`);
+  lineas.push(`Total de torres en CONFIG: ${CONFIG.torres.length} (${CONFIG.torres.map(t=>t.nombre).join(', ')})`);
+
+  // ¿En qué torre/piso está este depto según la configuración actual?
+  let encontradoEnConfig = null;
+  CONFIG.torres.forEach(t=> t.pisos.forEach(p=> p.unidades.forEach(u=>{
+    if(normClave(u.depto)===depNorm) encontradoEnConfig = {torre:t.nombre, torreId:t.id, piso:p.piso, medidor:u.medidor};
+  })));
+  if(!encontradoEnConfig){
+    lineas.push(`\n⚠ "${deptoBuscado}" NO existe en la configuración actual (CONFIG) de este dispositivo. Por eso nunca podría reconocerse como tomado — revisa Configuración → Torres.`);
+  } else {
+    lineas.push(`\n✓ "${deptoBuscado}" SÍ existe en la configuración: ${encontradoEnConfig.torre} (id interno: ${encontradoEnConfig.torreId}) · Piso ${encontradoEnConfig.piso} · Medidor ${encontradoEnConfig.medidor}`);
+  }
+
+  // Buscar en LECTURAS (lo que se cargó de Sheets) cualquier clave que contenga este depto,
+  // sin importar el periodo/torre exactos — para ver qué hay guardado de verdad en memoria.
+  const clavesEncontradas = Object.keys(LECTURAS).filter(k => normClave(k.split('|')[3]) === depNorm);
+  lineas.push(`\nRegistros en memoria (LECTURAS) que contienen este depto: ${clavesEncontradas.length}`);
+  clavesEncontradas.slice(0,10).forEach(k=>{
+    const reg = LECTURAS[k];
+    lineas.push(`  • Clave: "${k}"\n    actual=${reg.actual} sincronizado=${reg.sincronizado} estado=${reg.estado}`);
+  });
+
+  if(encontradoEnConfig){
+    const claveEsperadaReal = `${periodo()}|${encontradoEnConfig.torreId}|${normClave(encontradoEnConfig.piso)}|${depNorm}`;
+    lineas.push(`\nClave que la pantalla actual está buscando ahora mismo:\n  "${claveEsperadaReal}"`);
+    lineas.push(clavesEncontradas.includes(claveEsperadaReal) ? '✓ Esa clave SÍ está en memoria — debería verse como tomado.' : '✗ Esa clave NO está en memoria — por eso aparece disponible. Compárala arriba con las claves que sí existen para ver la diferencia exacta.');
+  }
+
+  box.textContent = lineas.join('\n');
 });
 
 /* =========================================================
