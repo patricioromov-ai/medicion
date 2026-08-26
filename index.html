@@ -469,7 +469,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v7.1 (herramienta de diagnóstico de depto)';
+const APP_VERSION = 'v7.2 (Periodo ya no distingue mayúsculas/minúsculas)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -631,8 +631,8 @@ async function saveCola(){ /* la cola pendiente vive solo en memoria mientras la
 
 function periodo(){ return document.getElementById('periodoInput').value.trim() || 'Sin periodo'; }
 function normClave(v){ return String(v==null?'':v).trim(); }
-function unitKey(torreId, piso, depto){ return `${periodo()}|${normClave(torreId)}|${normClave(piso)}|${normClave(depto)}`; }
-function unitKeyFor(per, torreId, piso, depto){ return `${normClave(per)}|${normClave(torreId)}|${normClave(piso)}|${normClave(depto)}`; }
+function unitKey(torreId, piso, depto){ return `${periodo().toLowerCase()}|${normClave(torreId)}|${normClave(piso)}|${normClave(depto)}`; }
+function unitKeyFor(per, torreId, piso, depto){ return `${normClave(per).toLowerCase()}|${normClave(torreId)}|${normClave(piso)}|${normClave(depto)}`; }
 
 function reconstruirLecturasDesdeFilas(rows){
   const out = {};
@@ -1873,7 +1873,7 @@ document.getElementById('btnDiagnosticar').addEventListener('click', ()=>{
   });
 
   if(encontradoEnConfig){
-    const claveEsperadaReal = `${periodo()}|${encontradoEnConfig.torreId}|${normClave(encontradoEnConfig.piso)}|${depNorm}`;
+    const claveEsperadaReal = unitKey(encontradoEnConfig.torreId, encontradoEnConfig.piso, deptoBuscado);
     lineas.push(`\nClave que la pantalla actual está buscando ahora mismo:\n  "${claveEsperadaReal}"`);
     lineas.push(clavesEncontradas.includes(claveEsperadaReal) ? '✓ Esa clave SÍ está en memoria — debería verse como tomado.' : '✗ Esa clave NO está en memoria — por eso aparece disponible. Compárala arriba con las claves que sí existen para ver la diferencia exacta.');
   }
