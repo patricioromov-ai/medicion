@@ -461,7 +461,7 @@ const DEFAULT_CONFIG = {
 const DEFAULT_USERS = [ { id:'u_admin', nombre:'Administrador', usuario:'admin', password:'admin123', rol:'admin' } ];
 const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyJoyOHDoX9l06pj5ZRl8nYOmQx_GGrzU2APByr3CLvnXkYeZQ-5gARhUY63VvOFebt/exec';
 const BACKEND_VERSION_ESPERADA = 'v4';
-const APP_VERSION = 'v6.7 (fuerza 3 decimales fijos en columnas de lectura)';
+const APP_VERSION = 'v6.8 (lecturas como texto, evita coma decimal regional)';
 document.getElementById('loginAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgAppVersion').textContent = APP_VERSION;
 document.getElementById('cfgBackendEsperado').textContent = BACKEND_VERSION_ESPERADA;
@@ -1726,6 +1726,8 @@ function formatFechaHora(iso){
   return `${pad2(d.getDate())}-${pad2(d.getMonth()+1)}-${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function formatNum3(v){ return (v===null || v===undefined || v==='') ? '' : Number(v).toFixed(3); }
+
 function filaParaSheets(t, p, u, reg){
   const estado = reg.estado || 'leida';
   const variacion = (estado==='leida' && reg.actual!=null && reg.anterior!=null) ? (reg.actual-reg.anterior) : '';
@@ -1733,8 +1735,8 @@ function filaParaSheets(t, p, u, reg){
   return {
     Periodo: t.__periodo, Torre: t.nombre, Piso: p, Depto: u.depto, Medidor: u.medidor,
     Estado: etiquetaEstado(estado),
-    'Lectura anterior': reg.anterior ?? '', 'Lectura actual': reg.actual ?? '',
-    'Variación (m³)': variacion, 'Anomalía': anom ? anom.motivo : '',
+    'Lectura anterior': formatNum3(reg.anterior), 'Lectura actual': formatNum3(reg.actual),
+    'Variación (m³)': formatNum3(variacion), 'Anomalía': anom ? anom.motivo : '',
     Observaciones: reg.obs || '', 'Foto': reg.fotoUrl || (reg.tieneFoto ? 'Pendiente de subir' : 'No'),
     'Registrado por': reg.autorNombre || reg.autor || '',
     'Fecha registro': formatFechaHora(reg.horaGuardado)
@@ -1844,25 +1846,11 @@ function convertirColumnaFecha(ws, rows, nombreColumna){
     ws[cellRef] = { t:'d', v:fecha, z:'dd-mm-yyyy hh:mm' };
   });
 }
-/** Fuerza 3 decimales fijos (formato ###.### / ##.###) en columnas numéricas de lectura,
-    para que Excel no recorte los ceros finales (123.450 no se muestre como 123.45). */
-function forzarTresDecimales(ws, rows, nombreColumna){
-  const headers = Object.keys(rows[0]||{});
-  const colIdx = headers.indexOf(nombreColumna);
-  if(colIdx===-1) return;
-  rows.forEach((row, i)=>{
-    const val = row[nombreColumna];
-    if(typeof val !== 'number') return;
-    const cellRef = XLSX.utils.encode_cell({r:i+1, c:colIdx});
-    if(ws[cellRef]) ws[cellRef].z = '0.000';
-  });
-}
 document.getElementById('btnXlsx').addEventListener('click', ()=>{
   const rows = buildDataRows();
   if(rows.length===0){ toast('No hay lecturas guardadas para exportar'); return; }
   const ws = XLSX.utils.json_to_sheet(rows);
   convertirColumnaFecha(ws, rows, 'Fecha registro');
-  ['Lectura anterior','Lectura actual','Variación (m³)'].forEach(c=> forzarTresDecimales(ws, rows, c));
   ws['!cols'] = [{wch:12},{wch:12},{wch:6},{wch:8},{wch:12},{wch:14},{wch:14},{wch:14},{wch:12},{wch:30},{wch:28},{wch:22},{wch:16},{wch:19}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Lecturas');
@@ -2006,7 +1994,7 @@ document.getElementById('btnGenerarReporte').addEventListener('click', ()=>{
   }
   let consumoTotal = 0, conConsumo = 0, anomalias = 0, sinAcceso=0, danados=0, deshabitados=0;
   repFilasActuales.forEach(r=>{
-    if(typeof r['Variación (m³)']==='number'){ consumoTotal += r['Variación (m³)']; conConsumo++; }
+    if(r['Variación (m³)']!==''){ consumoTotal += parseFloat(r['Variación (m³)']); conConsumo++; }
     if(r['Anomalía']) anomalias++;
     if(r.Estado==='Sin acceso') sinAcceso++;
     if(r.Estado==='Medidor dañado') danados++;
@@ -2034,7 +2022,6 @@ document.getElementById('btnRepExcel').addEventListener('click', ()=>{
   if(repFilasActuales.length===0){ toast('Primero genera la vista previa'); return; }
   const ws = XLSX.utils.json_to_sheet(repFilasActuales);
   convertirColumnaFecha(ws, repFilasActuales, 'Fecha registro');
-  ['Lectura anterior','Lectura actual','Variación (m³)'].forEach(c=> forzarTresDecimales(ws, repFilasActuales, c));
   ws['!cols'] = [{wch:12},{wch:12},{wch:6},{wch:8},{wch:12},{wch:14},{wch:14},{wch:14},{wch:12},{wch:30},{wch:28},{wch:22},{wch:16},{wch:19}];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Reporte');
@@ -2053,7 +2040,7 @@ document.getElementById('btnRepMail').addEventListener('click', ()=>{
   const dest = document.getElementById('emailDestino').value.trim();
   const periodoSel = document.getElementById('repPeriodo').value;
   let consumoTotal = 0;
-  repFilasActuales.forEach(r=>{ if(typeof r['Variación (m³)']==='number') consumoTotal += r['Variación (m³)']; });
+  repFilasActuales.forEach(r=>{ if(r['Variación (m³)']!=='') consumoTotal += parseFloat(r['Variación (m³)']); });
   let body = `Reporte de mediciones - Comunidad JDVM\nPeriodo: ${periodoSel}\nUnidades incluidas: ${repFilasActuales.length}\nConsumo total: ${consumoTotal.toFixed(1)} m³\n\n`;
   const limite = 200;
   repFilasActuales.slice(0, limite).forEach(r=>{ body += `${r.Torre} · Piso ${r.Piso} · Depto ${r.Depto}: ${r['Variación (m³)']} m³${r['Anomalía']?' ⚠':''}\n`; });
